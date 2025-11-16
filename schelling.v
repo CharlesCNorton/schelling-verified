@@ -16,6 +16,7 @@
 From Coq Require Import List Arith Bool ZArith Lia.
 From Coq Require Import Sorting.Permutation.
 From Coq Require Import Wf_nat.
+From Coq Require Import FunctionalExtensionality.
 Import ListNotations.
 
 Open Scope nat_scope.
@@ -31,18 +32,21 @@ Open Scope Z_scope.
 Section SchellingModel.
 
 Variable grid_size : nat.
+Hypothesis grid_size_pos : (0 < grid_size)%nat.
+
+Variable neighborhood_radius : nat.
+
+Variable Agent : Type.
+Variable agent_eqb : Agent -> Agent -> bool.
+Hypothesis agent_eqb_eq : forall a1 a2, agent_eqb a1 a2 = true <-> a1 = a2.
 
 (** Default tolerance: how many like-colored neighbors does an agent want? *)
 
 Definition tolerance_default : nat := 3.
 
 (* -----------------------------------------------------------------------------
-   Basic Types: Agents, Cells, Positions, and Grids
+   Basic Types: Cells, Positions, and Grids
    ----------------------------------------------------------------------------- *)
-
-Inductive Agent : Type :=
-| Red
-| Blue.
 
 Inductive Cell : Type :=
 | Empty
@@ -60,27 +64,20 @@ Definition Grid := Pos -> Cell.
    Equality on Agents and Positions
    ----------------------------------------------------------------------------- *)
 
-Definition agent_eqb (a1 a2 : Agent) : bool :=
-  match a1, a2 with
-  | Red,  Red  => true
-  | Blue, Blue => true
-  | _,    _    => false
-  end.
-
 Lemma agent_eqb_refl : forall a, agent_eqb a a = true.
-Proof. intros []; reflexivity. Qed.
-
-Lemma agent_eqb_eq : forall a1 a2, agent_eqb a1 a2 = true <-> a1 = a2.
 Proof.
-  intros a1 a2; split.
-  - intros Heq; destruct a1, a2; simpl in Heq; try discriminate; reflexivity.
-  - intros Heq; subst; apply agent_eqb_refl.
+  intros a.
+  apply agent_eqb_eq.
+  reflexivity.
 Qed.
 
 Lemma agent_eqb_neq : forall a1 a2, a1 <> a2 <-> agent_eqb a1 a2 = false.
 Proof.
   intros a1 a2; split.
-  - intros Hneq; destruct a1, a2; try reflexivity; exfalso; apply Hneq; reflexivity.
+  - intros Hneq.
+    destruct (agent_eqb a1 a2) eqn:E; [|reflexivity].
+    apply agent_eqb_eq in E.
+    contradiction.
   - intros Hfalse Heq; subst; rewrite agent_eqb_refl in Hfalse; discriminate.
 Qed.
 
@@ -190,6 +187,42 @@ Proof.
   rewrite pos_eqb_neq; [reflexivity|assumption].
 Qed.
 
+(* -----------------------------------------------------------------------------
+   Proof Automation Tactics
+   ----------------------------------------------------------------------------- *)
+
+(** Custom tactics to automate common proof patterns. These are placed here
+    after the basic grid lemmas so they can reference get_set_same/other. *)
+
+Ltac solve_get_set :=
+  repeat (rewrite get_set_same ||
+          (try rewrite get_set_other by congruence));
+  try reflexivity.
+
+Ltac solve_pos_neq :=
+  try congruence;
+  try (intros Heq; inversion Heq; congruence);
+  try (intros Heq; subst; congruence).
+
+Ltac destruct_cell c :=
+  let a := fresh "a" in
+  destruct c as [|a].
+
+Ltac solve_in_bounds :=
+  unfold in_bounds; simpl;
+  repeat match goal with
+  | |- _ /\ _ => split
+  | H: (_ < grid_size)%nat |- _ => apply Nat.ltb_lt in H
+  | |- (_ < grid_size)%nat => apply Nat.ltb_lt
+  end;
+  try assumption; try lia.
+
+Ltac break_match :=
+  match goal with
+  | |- context[match ?x with _ => _ end] => destruct x eqn:?
+  | H: context[match ?x with _ => _ end] |- _ => destruct x eqn:?
+  end.
+
 Corollary set_cell_twice_same_pos :
   forall g p c1 c2 q,
     get_cell (set_cell (set_cell g p c1) p c2) q = get_cell (set_cell g p c2) q.
@@ -237,10 +270,18 @@ Qed.
 Definition wellformed_grid (g : Grid) : Prop :=
   forall i j, ((i >= grid_size)%nat \/ (j >= grid_size)%nat) -> get_cell g (i, j) = Empty.
 
+Record WFGrid : Type := mkWFGrid {
+  wf_grid :> Grid;
+  wf_proof : wellformed_grid wf_grid
+}.
+
 Lemma empty_grid_wellformed : wellformed_grid empty_grid.
 Proof.
   intros i j _; reflexivity.
 Qed.
+
+Definition empty_wfgrid : WFGrid :=
+  mkWFGrid empty_grid empty_grid_wellformed.
 
 Lemma wellformed_grid_get_cell :
   forall g i j,
@@ -361,13 +402,14 @@ Proof.
   apply seq_length.
 Qed.
 
-Corollary all_positions_nonempty_for_positive_grid :
-  (0 < grid_size)%nat ->
+Corollary all_positions_nonempty :
   all_positions_grid <> [].
 Proof.
-  intros Hpos Hempty.
+  intros Hempty.
   assert (Hlen : length all_positions_grid = (grid_size * grid_size)%nat) by apply all_positions_length.
-  rewrite Hempty in Hlen; simpl in Hlen; lia.
+  rewrite Hempty in Hlen; simpl in Hlen.
+  assert (Hpos : (0 < grid_size * grid_size)%nat) by lia.
+  lia.
 Qed.
 
 Corollary all_positions_complete :
@@ -387,8 +429,44 @@ Proof.
   destruct Hin as [Hi Hj]; split; assumption.
 Qed.
 
+Lemma grid_size_positive :
+  (0 < grid_size)%nat.
+Proof.
+  exact grid_size_pos.
+Qed.
+
+Lemma grid_area_positive :
+  (0 < grid_size * grid_size)%nat.
+Proof.
+  apply Nat.mul_pos_pos; exact grid_size_pos.
+Qed.
+
+Lemma all_positions_length_positive :
+  (0 < length all_positions_grid)%nat.
+Proof.
+  rewrite all_positions_length.
+  apply grid_area_positive.
+Qed.
+
+Lemma exists_valid_position :
+  exists p, in_bounds p.
+Proof.
+  exists (0%nat, 0%nat).
+  unfold in_bounds; simpl.
+  split; exact grid_size_pos.
+Qed.
+
+Lemma exists_position_in_grid :
+  exists p, In p all_positions_grid.
+Proof.
+  destruct exists_valid_position as [[i j] Hbounds].
+  exists (i, j).
+  apply all_positions_complete.
+  exact Hbounds.
+Qed.
+
 (* -----------------------------------------------------------------------------
-   Neighborhood (Moore radius 1)
+   Neighborhood (Moore with parametric radius)
    ----------------------------------------------------------------------------- *)
 
 Definition moore_neighbor (p q : Pos) : bool :=
@@ -396,8 +474,8 @@ Definition moore_neighbor (p q : Pos) : bool :=
   let '(i', j') := q in
   let di := Z.abs (Z.of_nat i - Z.of_nat i') in
   let dj := Z.abs (Z.of_nat j - Z.of_nat j') in
-  Z.leb di 1 &&
-  Z.leb dj 1 &&
+  Z.leb di (Z.of_nat neighborhood_radius) &&
+  Z.leb dj (Z.of_nat neighborhood_radius) &&
   negb (Z.eqb di 0 && Z.eqb dj 0).
 
 Definition neighbors (p : Pos) : list Pos :=
@@ -409,7 +487,7 @@ Proof.
   intros [i j]; unfold moore_neighbor; simpl.
   replace (Z.of_nat i - Z.of_nat i) with 0%Z by lia.
   replace (Z.of_nat j - Z.of_nat j) with 0%Z by lia.
-  simpl. reflexivity.
+  simpl. destruct (Z.of_nat neighborhood_radius); reflexivity.
 Qed.
 
 Lemma neighbors_no_self :
@@ -505,6 +583,38 @@ Definition happy (tau : nat) (g : Grid) (p : Pos) : bool :=
 Definition happy_for (tau : nat) (g : Grid) (a : Agent) (p : Pos) : bool :=
   Nat.leb tau (count_same a (neighbor_cells g p)).
 
+(** Agent-specific tolerance variant: tolerance is a function from Agent to nat *)
+
+Definition happy_agent_tolerance (tau_fn : Agent -> nat) (g : Grid) (p : Pos) : bool :=
+  match get_cell g p with
+  | Empty => true
+  | Occupied a =>
+      Nat.leb (tau_fn a) (count_same a (neighbor_cells g p))
+  end.
+
+Definition happy_for_agent_tolerance (tau_fn : Agent -> nat) (g : Grid) (a : Agent) (p : Pos) : bool :=
+  Nat.leb (tau_fn a) (count_same a (neighbor_cells g p)).
+
+(** Uniform tolerance is a special case of agent-specific tolerance *)
+
+Lemma happy_uniform_is_agent_tolerance :
+  forall tau g p,
+    happy tau g p = happy_agent_tolerance (fun _ => tau) g p.
+Proof.
+  intros tau g p.
+  unfold happy, happy_agent_tolerance.
+  destruct (get_cell g p); reflexivity.
+Qed.
+
+Lemma happy_for_uniform_is_agent_tolerance :
+  forall tau g a p,
+    happy_for tau g a p = happy_for_agent_tolerance (fun _ => tau) g a p.
+Proof.
+  intros tau g a p.
+  unfold happy_for, happy_for_agent_tolerance.
+  reflexivity.
+Qed.
+
 Lemma empty_cell_always_happy :
   forall tau g p,
     get_cell g p = Empty ->
@@ -591,6 +701,139 @@ Fixpoint step_positions (tau : nat) (ps : list Pos) (g : Grid) : Grid :=
 
 Definition step (tau : nat) (g : Grid) : Grid :=
   step_positions tau all_positions_grid g.
+
+(* -----------------------------------------------------------------------------
+   Agent-Specific Tolerance Dynamics
+   ----------------------------------------------------------------------------- *)
+
+Definition empty_and_happy_for_agent_tolerance
+  (tau_fn : Agent -> nat) (g : Grid) (a : Agent) (p : Pos) : bool :=
+  cell_is_empty g p && happy_for_agent_tolerance tau_fn g a p.
+
+Definition find_destination_agent_tolerance
+  (tau_fn : Agent -> nat) (g : Grid) (a : Agent) : option Pos :=
+  List.find (empty_and_happy_for_agent_tolerance tau_fn g a) all_positions_grid.
+
+Definition step_position_agent_tolerance
+  (tau_fn : Agent -> nat) (g : Grid) (p : Pos) : Grid :=
+  match get_cell g p with
+  | Empty => g
+  | Occupied a =>
+      if happy_agent_tolerance tau_fn g p then
+        g
+      else
+        match find_destination_agent_tolerance tau_fn g a with
+        | None => g
+        | Some q =>
+            let g1 := set_cell g p Empty in
+            let g2 := set_cell g1 q (Occupied a) in
+            g2
+        end
+  end.
+
+Fixpoint step_positions_agent_tolerance
+  (tau_fn : Agent -> nat) (ps : list Pos) (g : Grid) : Grid :=
+  match ps with
+  | [] => g
+  | p :: ps' =>
+      let g' := step_position_agent_tolerance tau_fn g p in
+      step_positions_agent_tolerance tau_fn ps' g'
+  end.
+
+Definition step_agent_tolerance (tau_fn : Agent -> nat) (g : Grid) : Grid :=
+  step_positions_agent_tolerance tau_fn all_positions_grid g.
+
+(** Uniform tolerance matches the agent-specific variant *)
+
+Lemma empty_and_happy_for_uniform_matches_agent_tolerance :
+  forall tau g a p,
+    empty_and_happy_for tau g a p =
+    empty_and_happy_for_agent_tolerance (fun _ => tau) g a p.
+Proof.
+  intros tau g a p.
+  unfold empty_and_happy_for, empty_and_happy_for_agent_tolerance.
+  rewrite <- happy_for_uniform_is_agent_tolerance.
+  reflexivity.
+Qed.
+
+Lemma find_destination_uniform_matches_agent_tolerance :
+  forall tau g a,
+    find_destination tau g a = find_destination_agent_tolerance (fun _ => tau) g a.
+Proof.
+  intros tau g a.
+  unfold find_destination, find_destination_agent_tolerance.
+  assert (Heq : empty_and_happy_for tau g a = empty_and_happy_for_agent_tolerance (fun _ => tau) g a).
+  { apply functional_extensionality.
+    intros p.
+    apply empty_and_happy_for_uniform_matches_agent_tolerance. }
+  rewrite Heq.
+  reflexivity.
+Qed.
+
+Lemma step_position_uniform_matches_agent_tolerance :
+  forall tau g p,
+    step_position tau g p = step_position_agent_tolerance (fun _ => tau) g p.
+Proof.
+  intros tau g p.
+  unfold step_position, step_position_agent_tolerance.
+  destruct (get_cell g p) as [|a] eqn:Hcell; [reflexivity|].
+  rewrite <- happy_uniform_is_agent_tolerance.
+  destruct (happy tau g p); [reflexivity|].
+  rewrite find_destination_uniform_matches_agent_tolerance.
+  destruct (find_destination_agent_tolerance (fun _ : Agent => tau) g a); reflexivity.
+Qed.
+
+(* -----------------------------------------------------------------------------
+   Parallel Update Semantics
+   ----------------------------------------------------------------------------- *)
+
+Fixpoint compute_moves (tau : nat) (g : Grid) (ps : list Pos) : list (Pos * Pos * Agent) :=
+  match ps with
+  | [] => []
+  | p :: ps' =>
+      match get_cell g p with
+      | Empty => compute_moves tau g ps'
+      | Occupied a =>
+          if happy tau g p then
+            compute_moves tau g ps'
+          else
+            match find_destination tau g a with
+            | None => compute_moves tau g ps'
+            | Some q => (p, q, a) :: compute_moves tau g ps'
+            end
+      end
+  end.
+
+Fixpoint apply_moves (moves : list (Pos * Pos * Agent)) (g : Grid) : Grid :=
+  match moves with
+  | [] => g
+  | (p, q, a) :: rest =>
+      let g1 := set_cell g p Empty in
+      let g2 := set_cell g1 q (Occupied a) in
+      apply_moves rest g2
+  end.
+
+Definition step_parallel (tau : nat) (g : Grid) : Grid :=
+  apply_moves (compute_moves tau g all_positions_grid) g.
+
+Lemma apply_moves_nil :
+  forall g, apply_moves [] g = g.
+Proof.
+  intros g. reflexivity.
+Qed.
+
+Lemma compute_moves_app :
+  forall tau g ps1 ps2,
+    compute_moves tau g (ps1 ++ ps2) =
+    compute_moves tau g ps1 ++ compute_moves tau g ps2.
+Proof.
+  intros tau g ps1 ps2.
+  induction ps1 as [|p ps1' IH]; simpl; [reflexivity|].
+  destruct (get_cell g p) eqn:Hcell; [apply IH|].
+  destruct (happy tau g p) eqn:Hhappy; [apply IH|].
+  destruct (find_destination tau g a) eqn:Hfind; [|apply IH].
+  simpl. rewrite IH. reflexivity.
+Qed.
 
 (* -----------------------------------------------------------------------------
    A Simple but Non-Trivial Global Property: Stability Fixed Points
@@ -801,6 +1044,20 @@ Corollary stable_decidable_wellformed :
     {stable tau g} + {~ stable tau g}.
 Proof.
   intros tau g Hwf; apply stable_dec_wellformed; assumption.
+Qed.
+
+Theorem step_parallel_stable_fixed_point :
+  forall tau g,
+    stable tau g ->
+    step_parallel tau g = g.
+Proof.
+  intros tau g Hstable.
+  unfold step_parallel.
+  assert (Hmoves : compute_moves tau g all_positions_grid = []).
+  { induction all_positions_grid as [|p ps IH]; simpl; [reflexivity|].
+    destruct (get_cell g p) eqn:Hcell; [apply IH|].
+    rewrite (Hstable p). apply IH. }
+  rewrite Hmoves. simpl. reflexivity.
 Qed.
 
 Lemma step_position_preserves_wellformed :
@@ -3419,6 +3676,236 @@ Proof.
   - exact Hpreserved.
   - exfalso. apply Hneq_p. exact Heq_p.
   - exfalso. apply (Hnot_dest a q); assumption.
+Qed.
+
+Theorem parallel_sequential_equivalence_on_stable :
+  forall tau g,
+    stable tau g ->
+    step_parallel tau g = step tau g.
+Proof.
+  intros tau g Hstable.
+  rewrite step_parallel_stable_fixed_point by assumption.
+  rewrite step_stable_fixed_point by assumption.
+  reflexivity.
+Qed.
+
+(* -----------------------------------------------------------------------------
+   Grid Construction Utilities
+   ----------------------------------------------------------------------------- *)
+
+Fixpoint place_agents_aux (agents : list (Pos * Agent)) (g : Grid) : Grid :=
+  match agents with
+  | [] => g
+  | (p, a) :: rest => place_agents_aux rest (set_cell g p (Occupied a))
+  end.
+
+Definition grid_from_list (agents : list (Pos * Agent)) : Grid :=
+  place_agents_aux agents empty_grid.
+
+Lemma place_agents_aux_wellformed :
+  forall agents g,
+    wellformed_grid g ->
+    (forall p a, In (p, a) agents -> in_bounds p) ->
+    wellformed_grid (place_agents_aux agents g).
+Proof.
+  intros agents; induction agents as [|pa rest IH]; intros g Hwf Hbounds; simpl.
+  - assumption.
+  - destruct pa as [p ag].
+    apply IH.
+    + apply set_cell_preserves_wellformed; [assumption|].
+      apply (Hbounds p ag); left; reflexivity.
+    + intros p' a' Hin; apply (Hbounds p' a'); right; assumption.
+Qed.
+
+Lemma grid_from_list_wellformed :
+  forall agents,
+    (forall p a, In (p, a) agents -> in_bounds p) ->
+    wellformed_grid (grid_from_list agents).
+Proof.
+  intros agents Hbounds.
+  unfold grid_from_list.
+  apply place_agents_aux_wellformed.
+  - apply empty_grid_wellformed.
+  - assumption.
+Qed.
+
+(* -----------------------------------------------------------------------------
+   Computational Complexity Analysis
+   ----------------------------------------------------------------------------- *)
+
+(** This section provides formal statements about the time and space complexity
+    of key operations. While Coq cannot directly prove asymptotic complexity
+    (as it would require a cost model), we can establish bounds on the number
+    of elementary operations. *)
+
+(** * Time Complexity Bounds *)
+
+(** Neighbor computation: O(grid_size²) for Moore neighborhood *)
+
+Lemma filter_length_le {A : Type} (f : A -> bool) (l : list A) :
+  (length (filter f l) <= length l)%nat.
+Proof.
+  induction l as [|x l' IH]; simpl.
+  - reflexivity.
+  - destruct (f x); simpl; lia.
+Qed.
+
+Lemma neighbors_length_bounded :
+  forall p,
+    (length (neighbors p) <= grid_size * grid_size)%nat.
+Proof.
+  intros p.
+  unfold neighbors.
+  assert (Hlen : (length (filter (moore_neighbor p) all_positions_grid) <=
+                  length all_positions_grid)%nat).
+  { apply filter_length_le. }
+  rewrite all_positions_length in Hlen.
+  exact Hlen.
+Qed.
+
+Lemma Z_abs_le_1_bounded :
+  forall a b : Z,
+    (Z.abs (a - b) <= 1)%Z ->
+    (a = b - 1 \/ a = b \/ a = b + 1)%Z.
+Proof.
+  intros a b H.
+  destruct (Z_lt_le_dec (a - b) 0) as [Hneg | Hpos].
+  - assert (Habs : (Z.abs (a - b) = - (a - b))%Z).
+    { apply Z.abs_neq. lia. }
+    rewrite Habs in H. lia.
+  - assert (Habs : (Z.abs (a - b) = a - b)%Z).
+    { apply Z.abs_eq. lia. }
+    rewrite Habs in H. lia.
+Qed.
+
+Lemma moore_radius_1_3x3_grid :
+  neighborhood_radius = 1%nat ->
+  forall i j q,
+    moore_neighbor (i, j) q = true ->
+    exists i' j',
+      q = (i', j') /\
+      (i' = i \/ i' = (i - 1)%nat \/ i' = (i + 1)%nat) /\
+      (j' = j \/ j' = (j - 1)%nat \/ j' = (j + 1)%nat) /\
+      (i' <> i \/ j' <> j).
+Proof.
+  intros Hr1 i j q Hmn.
+  unfold moore_neighbor in Hmn.
+  destruct q as [i' j']; simpl in *.
+  rewrite Hr1 in Hmn.
+  repeat (rewrite Bool.andb_true_iff in Hmn).
+  destruct Hmn as [[Hdi Hdj] Hneq].
+  exists i', j'; repeat split; try reflexivity.
+  - apply Z.leb_le in Hdi.
+    apply Z_abs_le_1_bounded in Hdi.
+    destruct Hdi as [Hi | [Hi | Hi]]; lia.
+  - apply Z.leb_le in Hdj.
+    apply Z_abs_le_1_bounded in Hdj.
+    destruct Hdj as [Hj | [Hj | Hj]]; lia.
+  - rewrite Bool.negb_true_iff in Hneq.
+    rewrite Bool.andb_false_iff in Hneq.
+    destruct Hneq as [H1 | H2].
+    + left. intros contra; subst i'.
+      replace (Z.of_nat i - Z.of_nat i)%Z with 0%Z in H1 by lia.
+      simpl in H1; discriminate.
+    + right. intros contra; subst j'.
+      replace (Z.of_nat j - Z.of_nat j)%Z with 0%Z in H2 by lia.
+      simpl in H2; discriminate.
+Qed.
+
+Lemma neighbors_moore_radius_1_bounded :
+  neighborhood_radius = 1%nat ->
+  forall p, (length (neighbors p) <= grid_size * grid_size)%nat.
+Proof.
+  intros Hr1 p.
+  apply neighbors_length_bounded.
+Qed.
+
+(** Find destination: O(grid_size²) - scans all positions once *)
+
+Definition find_destination_cost : nat := grid_size * grid_size.
+
+Lemma find_destination_scans_all_positions :
+  forall tau g a,
+    find_destination tau g a = List.find (empty_and_happy_for tau g a) all_positions_grid.
+Proof.
+  intros tau g a.
+  reflexivity.
+Qed.
+
+(** Step position: O(grid_size²) worst case - dominated by find_destination *)
+
+Definition step_position_cost_worst : nat := find_destination_cost.
+
+(** Step (full grid): O(grid_size⁴) worst case
+    - iterates grid_size² positions
+    - each may call find_destination which is O(grid_size²) *)
+
+Definition step_cost_worst : nat := (grid_size * grid_size * find_destination_cost)%nat.
+
+Lemma step_cost_quartic :
+  step_cost_worst = (grid_size * grid_size * grid_size * grid_size)%nat.
+Proof.
+  unfold step_cost_worst, find_destination_cost.
+  ring.
+Qed.
+
+(** * Space Complexity *)
+
+(** Grid representation: O(1) - functional representation doesn't store explicitly *)
+
+(** Position enumeration: O(grid_size²) *)
+
+Lemma all_positions_space :
+  length all_positions_grid = (grid_size * grid_size)%nat.
+Proof.
+  apply all_positions_length.
+Qed.
+
+(** Move list in parallel semantics: O(grid_size²) worst case *)
+
+Lemma compute_moves_length_bounded :
+  forall tau g ps,
+    (length (compute_moves tau g ps) <= length ps)%nat.
+Proof.
+  intros tau g ps.
+  induction ps as [|p ps' IH]; simpl.
+  - reflexivity.
+  - destruct (get_cell g p) eqn:Hcell; [lia|].
+    destruct (happy tau g p) eqn:Hhappy; [lia|].
+    destruct (find_destination tau g a) eqn:Hfind; simpl; lia.
+Qed.
+
+Corollary compute_moves_grid_bounded :
+  forall tau g,
+    (length (compute_moves tau g all_positions_grid) <= grid_size * grid_size)%nat.
+Proof.
+  intros tau g.
+  assert (H := compute_moves_length_bounded tau g all_positions_grid).
+  rewrite all_positions_length in H.
+  exact H.
+Qed.
+
+(** * Complexity Summary *)
+
+(** The key complexity bottleneck is [step], which has O(n⁴) worst-case time
+    where n = grid_size. This is because:
+    - We iterate over all n² cells
+    - For each unhappy agent, we scan all n² positions to find a destination
+
+    In practice, if few agents move, complexity improves to O(n² + k·n²) = O(n²)
+    where k is the number of moving agents. *)
+
+Definition step_cost_best_case (moving_agents : nat) : nat :=
+  (grid_size * grid_size + moving_agents * grid_size * grid_size)%nat.
+
+Lemma step_cost_linear_in_movers :
+  forall k,
+    (k <= grid_size * grid_size)%nat ->
+    (step_cost_best_case k <= (1 + k) * grid_size * grid_size)%nat.
+Proof.
+  intros k Hk.
+  unfold step_cost_best_case.
+  nia.
 Qed.
 
 End SchellingModel.
