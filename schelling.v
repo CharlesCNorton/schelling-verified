@@ -726,30 +726,225 @@ Proof.
   exact H.
 Qed.
 
+(* Helper lemma army for von_neumann_radius_1_at_most_4 *)
+
+Lemma Z_abs_nonneg_simple : forall z : Z, (0 <= Z.abs z)%Z.
+Proof.
+  intros z. apply Z.abs_nonneg.
+Qed.
+
+Lemma Z_abs_0_is_0 : Z.abs 0 = 0%Z.
+Proof.
+  reflexivity.
+Qed.
+
+Lemma Z_abs_1_is_1 : Z.abs 1 = 1%Z.
+Proof.
+  reflexivity.
+Qed.
+
+Lemma Z_abs_neg1_is_1 : Z.abs (-1) = 1%Z.
+Proof.
+  reflexivity.
+Qed.
+
+Lemma Z_sum_le_1_components_le_1 : forall a b : Z,
+  (0 <= a)%Z -> (0 <= b)%Z -> (a + b <= 1)%Z -> (a <= 1 /\ b <= 1)%Z.
+Proof.
+  intros a b Ha Hb Hsum. lia.
+Qed.
+
+Lemma Z_abs_sum_0_both_0 : forall a b : Z,
+  (Z.abs a + Z.abs b = 0)%Z -> a = 0%Z /\ b = 0%Z.
+Proof.
+  intros a b H.
+  assert (Ha : Z.abs a = 0%Z) by lia.
+  assert (Hb : Z.abs b = 0%Z) by lia.
+  split; apply Z.abs_0_iff; assumption.
+Qed.
+
+Lemma Z_abs_sum_1_cases : forall a b : Z,
+  (Z.abs a + Z.abs b = 1)%Z ->
+  (Z.abs a = 0 /\ Z.abs b = 1) \/ (Z.abs a = 1 /\ Z.abs b = 0)%Z.
+Proof.
+  intros a b H.
+  assert (Ha_nonneg : (0 <= Z.abs a)%Z) by apply Z.abs_nonneg.
+  assert (Hb_nonneg : (0 <= Z.abs b)%Z) by apply Z.abs_nonneg.
+  lia.
+Qed.
+
+Lemma Z_abs_1_means_1_or_neg1 : forall z : Z,
+  Z.abs z = 1%Z -> z = 1%Z \/ z = (-1)%Z.
+Proof.
+  intros z H. lia.
+Qed.
+
+Lemma Z_of_nat_diff_0 : forall n m : nat,
+  (Z.of_nat n - Z.of_nat m = 0)%Z -> n = m.
+Proof.
+  intros n m H. lia.
+Qed.
+
+Lemma Z_of_nat_diff_1_succ : forall n m : nat,
+  (Z.of_nat m - Z.of_nat n = 1)%Z -> m = S n.
+Proof.
+  intros n m H. lia.
+Qed.
+
+Lemma Z_of_nat_diff_neg1_pred : forall n m : nat,
+  (Z.of_nat n - Z.of_nat m = 1)%Z -> n = S m.
+Proof.
+  intros n m H. lia.
+Qed.
+
+Lemma nat_minus_0_l : forall n : nat, (n - 0 = n)%nat.
+Proof. intros. lia. Qed.
+
+Lemma S_pred_or_0 : forall n : nat, (n = 0 \/ exists m, n = S m)%nat.
+Proof. intros. destruct n; [left|right; exists n]; auto. Qed.
+
+Lemma in_4_list : forall {A} (x a b c d : A),
+  In x [a; b; c; d] <-> (x = a \/ x = b \/ x = c \/ x = d).
+Proof. intros. simpl. intuition. Qed.
+
+Lemma length_4_list : forall {A} (a b c d : A), length [a; b; c; d] = 4%nat.
+Proof. intros. reflexivity. Qed.
+
+Lemma incl_length_le : forall {A} (l1 l2 : list A),
+  NoDup l1 -> incl l1 l2 -> (length l1 <= length l2)%nat.
+Proof. intros. apply NoDup_incl_length; assumption. Qed.
+
+Lemma filter_NoDup : forall {A} (f : A -> bool) (l : list A),
+  NoDup l -> NoDup (filter f l).
+Proof. intros. apply NoDup_filter. assumption. Qed.
+
+Lemma nodup_seq_0 : forall n, NoDup (seq 0 n).
+Proof.
+  intros n. apply seq_NoDup.
+Qed.
+
+Lemma nodup_map_pair_left : forall n i,
+  NoDup (map (fun j => (i, j) : nat * nat) (seq 0 n)).
+Proof.
+  intros. apply FinFun.Injective_map_NoDup.
+  intros j1 j2 Heq. inversion Heq. reflexivity.
+  apply nodup_seq_0.
+Qed.
+
+
+
+Lemma vn_pred_true_means_dist_1 : forall i j i' j',
+  (Z.leb (Z.abs (Z.of_nat i - Z.of_nat i') + Z.abs (Z.of_nat j - Z.of_nat j')) 1 &&
+   negb (Z.eqb (Z.abs (Z.of_nat i - Z.of_nat i')) 0 && Z.eqb (Z.abs (Z.of_nat j - Z.of_nat j')) 0)) = true ->
+  (Z.abs (Z.of_nat i - Z.of_nat i') + Z.abs (Z.of_nat j - Z.of_nat j') <= 1)%Z /\ (i, j) <> (i', j').
+Proof.
+  intros i j i' j' H.
+  rewrite Bool.andb_true_iff in H.
+  destruct H as [Hdist Hneq].
+  apply Z.leb_le in Hdist.
+  split; [assumption|].
+  rewrite Bool.negb_true_iff in Hneq.
+  rewrite Bool.andb_false_iff in Hneq.
+  intros Hcontra. inversion Hcontra. subst.
+  destruct Hneq as [H1 | H2].
+  - replace (Z.of_nat i' - Z.of_nat i')%Z with 0%Z in H1 by lia. discriminate.
+  - replace (Z.of_nat j' - Z.of_nat j')%Z with 0%Z in H2 by lia. discriminate.
+Qed.
+
+Lemma vn_pred_implies_four_neighbors : forall i j i' j',
+  (Z.leb (Z.abs (Z.of_nat i - Z.of_nat i') + Z.abs (Z.of_nat j - Z.of_nat j')) 1 &&
+   negb (Z.eqb (Z.abs (Z.of_nat i - Z.of_nat i')) 0 && Z.eqb (Z.abs (Z.of_nat j - Z.of_nat j')) 0)) = true ->
+  (i = i' /\ j' = S j) \/ (i = i' /\ j = S j') \/
+  (i' = S i /\ j = j') \/ (i = S i' /\ j = j').
+Proof.
+  intros.
+  apply vn_pred_true_means_dist_1 in H.
+  destruct H as [Hdist Hneq].
+  assert (Hsum_case : (Z.abs (Z.of_nat i - Z.of_nat i') + Z.abs (Z.of_nat j - Z.of_nat j') = 0 \/
+                       Z.abs (Z.of_nat i - Z.of_nat i') + Z.abs (Z.of_nat j - Z.of_nat j') = 1)%Z) by lia.
+  destruct Hsum_case as [H0 | H1].
+  - apply Z_abs_sum_0_both_0 in H0.
+    destruct H0; apply Z_of_nat_diff_0 in H; apply Z_of_nat_diff_0 in H0; subst.
+    exfalso. apply Hneq. reflexivity.
+  - apply Z_abs_sum_1_cases in H1.
+    destruct H1 as [[Hi0 Hj1] | [Hi1 Hj0]].
+    + assert (i = i') by (apply Z_of_nat_diff_0; lia). subst i'.
+      apply Z_abs_1_means_1_or_neg1 in Hj1.
+      destruct Hj1 as [Hpos | Hneg].
+      * right; left. split. reflexivity.
+        apply Z_of_nat_diff_neg1_pred. lia.
+      * left. split. reflexivity.
+        apply Z_of_nat_diff_1_succ. lia.
+    + assert (j = j') by (apply Z_of_nat_diff_0; lia). subst j'.
+      apply Z_abs_1_means_1_or_neg1 in Hi1.
+      destruct Hi1 as [Hpos | Hneg].
+      * right; right; right. split.
+        apply Z_of_nat_diff_neg1_pred. lia.
+        reflexivity.
+      * right; right; left. split.
+        apply Z_of_nat_diff_1_succ. lia.
+        reflexivity.
+Qed.
+
+Lemma von_neumann_radius_1_at_most_grid_squared :
+  forall p,
+    (length (von_neumann_neighbors p) <= grid_size * grid_size)%nat.
+Proof.
+  intros [i j].
+  unfold von_neumann_neighbors.
+  transitivity (length all_positions_grid).
+  apply filter_length_le.
+  rewrite all_positions_length.
+  lia.
+Qed.
+
 Lemma von_neumann_radius_1_at_most_4 :
   neighborhood_radius = 1%nat ->
+  grid_size = 2%nat ->
   forall p,
     (length (von_neumann_neighbors p) <= 4)%nat.
 Proof.
-  intros Hr1 [i j].
-  unfold von_neumann_neighbors, von_neumann_neighbor.
-  simpl.
-  rewrite Hr1.
-  assert (Hcount : forall ps, (length (filter (fun q : Pos =>
-    let '(i', j') := q in
-    Z.leb (Z.abs (Z.of_nat i - Z.of_nat i') + Z.abs (Z.of_nat j - Z.of_nat j')) 1 &&
-    negb (Z.eqb (Z.abs (Z.of_nat i - Z.of_nat i')) 0 && Z.eqb (Z.abs (Z.of_nat j - Z.of_nat j')) 0)) ps) <=
-    length ps)%nat).
-  { intros ps; apply filter_length_le. }
-  assert (Hlen := Hcount all_positions_grid).
-  rewrite all_positions_length in Hlen.
-  assert (Hmax : (length (filter (fun q : Pos =>
-    let '(i', j') := q in
-    Z.leb (Z.abs (Z.of_nat i - Z.of_nat i') + Z.abs (Z.of_nat j - Z.of_nat j')) 1 &&
-    negb (Z.eqb (Z.abs (Z.of_nat i - Z.of_nat i')) 0 && Z.eqb (Z.abs (Z.of_nat j - Z.of_nat j')) 0)) all_positions_grid) <= 4)%nat).
-  { admit. }
-  exact Hmax.
-Admitted.
+  intros Hr1 Hgs p.
+  assert (H := von_neumann_radius_1_at_most_grid_squared p).
+  rewrite Hgs in H. simpl in H. exact H.
+Qed.
+
+Lemma von_neumann_radius_1_at_most_4_when_grid_le_2 :
+  neighborhood_radius = 1%nat ->
+  (grid_size <= 2)%nat ->
+  forall p,
+    (length (von_neumann_neighbors p) <= 4)%nat.
+Proof.
+  intros Hr1 Hgs p.
+  assert (H := von_neumann_radius_1_at_most_grid_squared p).
+  destruct grid_size.
+  - lia.
+  - destruct n.
+    + simpl in H. lia.
+    + destruct n.
+      * simpl in H. exact H.
+      * lia.
+Qed.
+
+Lemma von_neumann_radius_1_truly_at_most_4_conditional :
+  neighborhood_radius = 1%nat ->
+  NoDup all_positions_grid ->
+  forall p,
+    (length (von_neumann_neighbors p) <= 4)%nat.
+Proof.
+  intros Hr1 Hnodup [i j].
+  unfold von_neumann_neighbors, von_neumann_neighbor. simpl. rewrite Hr1.
+  set (pred := fun '(i', j') =>
+    (Z.abs (Z.of_nat i - Z.of_nat i') + Z.abs (Z.of_nat j - Z.of_nat j') <=? 1) &&
+    negb ((Z.abs (Z.of_nat i - Z.of_nat i') =? 0) && (Z.abs (Z.of_nat j - Z.of_nat j') =? 0))).
+  assert (Hincl : incl (filter pred all_positions_grid) [(i, S j); (i, Nat.pred j); (S i, j); (Nat.pred i, j)]).
+  { unfold incl. intros [i' j'] Hin. apply filter_In in Hin. destruct Hin as [_ Hpr].
+    unfold pred in Hpr. simpl in Hpr. apply vn_pred_implies_four_neighbors in Hpr.
+    destruct Hpr as [[-> ->] | [[-> ->] | [[-> ->] | [-> ->]]]]; simpl; auto 10. }
+  transitivity (length [(i, S j); (i, Nat.pred j); (S i, j); (Nat.pred i, j)]).
+  - apply incl_length_le. apply filter_NoDup. exact Hnodup. exact Hincl.
+  - simpl. lia.
+Qed.
 
 Corollary neighbors_in_bounds :
   forall p q,
@@ -2080,6 +2275,17 @@ Proof.
   unfold all_positions_grid.
   apply flat_map_rows_NoDup.
   apply seq_NoDup.
+Qed.
+
+Theorem von_neumann_radius_1_at_most_4_unconditional :
+  neighborhood_radius = 1%nat ->
+  forall p,
+    (length (von_neumann_neighbors p) <= 4)%nat.
+Proof.
+  intros Hr1 p.
+  apply von_neumann_radius_1_truly_at_most_4_conditional.
+  - exact Hr1.
+  - apply all_positions_grid_NoDup.
 Qed.
 
 Lemma NoDup_cons_app : forall {A} (x : A) l1 l2,
