@@ -44,6 +44,85 @@ Hypothesis agent_eqb_eq : forall a1 a2, agent_eqb a1 a2 = true <-> a1 = a2.
 
 Definition tolerance_default : nat := 3.
 
+End SchellingModel.
+
+(* -----------------------------------------------------------------------------
+   Concrete Agent Instantiations
+   ----------------------------------------------------------------------------- *)
+
+Module ConcreteAgents.
+
+Inductive Color : Type :=
+| Red
+| Blue.
+
+Definition color_eqb (c1 c2 : Color) : bool :=
+  match c1, c2 with
+  | Red, Red => true
+  | Blue, Blue => true
+  | _, _ => false
+  end.
+
+Lemma color_eqb_eq : forall c1 c2, color_eqb c1 c2 = true <-> c1 = c2.
+Proof.
+  intros c1 c2; split; intros H.
+  - destruct c1, c2; simpl in H; try discriminate; reflexivity.
+  - subst; destruct c2; reflexivity.
+Qed.
+
+Inductive Ethnicity : Type :=
+| GroupA
+| GroupB
+| GroupC.
+
+Definition ethnicity_eqb (e1 e2 : Ethnicity) : bool :=
+  match e1, e2 with
+  | GroupA, GroupA => true
+  | GroupB, GroupB => true
+  | GroupC, GroupC => true
+  | _, _ => false
+  end.
+
+Lemma ethnicity_eqb_eq : forall e1 e2, ethnicity_eqb e1 e2 = true <-> e1 = e2.
+Proof.
+  intros e1 e2; split; intros H.
+  - destruct e1, e2; simpl in H; try discriminate; reflexivity.
+  - subst; destruct e2; reflexivity.
+Qed.
+
+Inductive Income : Type :=
+| Low
+| Middle
+| High.
+
+Definition income_eqb (i1 i2 : Income) : bool :=
+  match i1, i2 with
+  | Low, Low => true
+  | Middle, Middle => true
+  | High, High => true
+  | _, _ => false
+  end.
+
+Lemma income_eqb_eq : forall i1 i2, income_eqb i1 i2 = true <-> i1 = i2.
+Proof.
+  intros i1 i2; split; intros H.
+  - destruct i1, i2; simpl in H; try discriminate; reflexivity.
+  - subst; destruct i2; reflexivity.
+Qed.
+
+End ConcreteAgents.
+
+Section SchellingModel.
+
+Variable grid_size : nat.
+Hypothesis grid_size_pos : (0 < grid_size)%nat.
+
+Variable neighborhood_radius : nat.
+
+Variable Agent : Type.
+Variable agent_eqb : Agent -> Agent -> bool.
+Hypothesis agent_eqb_eq : forall a1 a2, agent_eqb a1 a2 = true <-> a1 = a2.
+
 (* -----------------------------------------------------------------------------
    Basic Types: Cells, Positions, and Grids
    ----------------------------------------------------------------------------- *)
@@ -526,6 +605,152 @@ Proof.
     + right; apply Z.eqb_neq in H2; apply Z.eqb_neq; lia.
 Qed.
 
+(* -----------------------------------------------------------------------------
+   von Neumann Neighborhood (4-connected)
+   ----------------------------------------------------------------------------- *)
+
+(** The von Neumann neighborhood includes only the 4 cardinal directions
+    (up, down, left, right), as opposed to Moore which includes all 8
+    surrounding cells. This is often used in models where diagonal
+    connections are not considered. *)
+
+Definition von_neumann_neighbor (p q : Pos) : bool :=
+  let '(i, j)   := p in
+  let '(i', j') := q in
+  let di := Z.abs (Z.of_nat i - Z.of_nat i') in
+  let dj := Z.abs (Z.of_nat j - Z.of_nat j') in
+  Z.leb (di + dj) (Z.of_nat neighborhood_radius) &&
+  negb (Z.eqb di 0 && Z.eqb dj 0).
+
+Definition von_neumann_neighbors (p : Pos) : list Pos :=
+  filter (von_neumann_neighbor p) all_positions_grid.
+
+Lemma von_neumann_neighbor_irreflexive :
+  forall p, von_neumann_neighbor p p = false.
+Proof.
+  intros [i j]; unfold von_neumann_neighbor; simpl.
+  replace (Z.of_nat i - Z.of_nat i) with 0%Z by lia.
+  replace (Z.of_nat j - Z.of_nat j) with 0%Z by lia.
+  simpl. destruct (Z.of_nat neighborhood_radius); reflexivity.
+Qed.
+
+Lemma von_neumann_neighbors_no_self :
+  forall p, ~ In p (von_neumann_neighbors p).
+Proof.
+  intros p Hin.
+  unfold von_neumann_neighbors in Hin.
+  apply filter_In in Hin.
+  destruct Hin as [_ Hnb].
+  rewrite von_neumann_neighbor_irreflexive in Hnb.
+  discriminate.
+Qed.
+
+Lemma von_neumann_neighbor_symmetric :
+  forall p q,
+    von_neumann_neighbor p q = true ->
+    von_neumann_neighbor q p = true.
+Proof.
+  intros [i j] [i' j'] Hnb.
+  unfold von_neumann_neighbor in *; simpl in *.
+  rewrite Bool.andb_true_iff in Hnb.
+  destruct Hnb as [Hdist Hneq].
+  rewrite Bool.andb_true_iff.
+  split.
+  - apply Z.leb_le in Hdist.
+    apply Z.leb_le.
+    rewrite Z_abs_symmetric with (a := Z.of_nat i') (b := Z.of_nat i).
+    rewrite Z_abs_symmetric with (a := Z.of_nat j') (b := Z.of_nat j).
+    assumption.
+  - rewrite Bool.negb_true_iff in *. rewrite Bool.andb_false_iff in *.
+    destruct Hneq as [H1 | H2].
+    + left; apply Z.eqb_neq in H1; apply Z.eqb_neq; lia.
+    + right; apply Z.eqb_neq in H2; apply Z.eqb_neq; lia.
+Qed.
+
+Lemma von_neumann_neighbors_in_bounds :
+  forall p q,
+    In q (von_neumann_neighbors p) ->
+    in_bounds q.
+Proof.
+  intros p q Hin.
+  unfold von_neumann_neighbors in Hin.
+  apply filter_In in Hin.
+  destruct Hin as [Hin _].
+  apply all_positions_only_in_bounds; assumption.
+Qed.
+
+Lemma von_neumann_subset_moore :
+  forall p q,
+    von_neumann_neighbor p q = true ->
+    moore_neighbor p q = true.
+Proof.
+  intros [i j] [i' j'] Hvn.
+  unfold von_neumann_neighbor, moore_neighbor in *; simpl in *.
+  rewrite !Bool.andb_true_iff in *.
+  destruct Hvn as [Hdist Hneq].
+  repeat split.
+  - apply Z.leb_le.
+    apply Z.leb_le in Hdist.
+    assert (H : (Z.abs (Z.of_nat i - Z.of_nat i') <= Z.abs (Z.of_nat i - Z.of_nat i') + Z.abs (Z.of_nat j - Z.of_nat j'))%Z).
+    { lia. }
+    lia.
+  - apply Z.leb_le.
+    apply Z.leb_le in Hdist.
+    assert (H : (Z.abs (Z.of_nat j - Z.of_nat j') <= Z.abs (Z.of_nat i - Z.of_nat i') + Z.abs (Z.of_nat j - Z.of_nat j'))%Z).
+    { lia. }
+    lia.
+  - assumption.
+Qed.
+
+Lemma von_neumann_neighbors_subset_moore :
+  forall p,
+    incl (von_neumann_neighbors p) (neighbors p).
+Proof.
+  intros p q Hin.
+  unfold von_neumann_neighbors, neighbors in *.
+  apply filter_In in Hin.
+  destruct Hin as [Hin_all Hvn].
+  apply filter_In; split.
+  - assumption.
+  - apply von_neumann_subset_moore; assumption.
+Qed.
+
+Lemma von_neumann_neighbors_length_bounded :
+  forall p,
+    (length (von_neumann_neighbors p) <= grid_size * grid_size)%nat.
+Proof.
+  intros p.
+  unfold von_neumann_neighbors.
+  assert (H := filter_length_le (von_neumann_neighbor p) all_positions_grid).
+  rewrite all_positions_length in H.
+  exact H.
+Qed.
+
+Lemma von_neumann_radius_1_at_most_4 :
+  neighborhood_radius = 1%nat ->
+  forall p,
+    (length (von_neumann_neighbors p) <= 4)%nat.
+Proof.
+  intros Hr1 [i j].
+  unfold von_neumann_neighbors, von_neumann_neighbor.
+  simpl.
+  rewrite Hr1.
+  assert (Hcount : forall ps, (length (filter (fun q : Pos =>
+    let '(i', j') := q in
+    Z.leb (Z.abs (Z.of_nat i - Z.of_nat i') + Z.abs (Z.of_nat j - Z.of_nat j')) 1 &&
+    negb (Z.eqb (Z.abs (Z.of_nat i - Z.of_nat i')) 0 && Z.eqb (Z.abs (Z.of_nat j - Z.of_nat j')) 0)) ps) <=
+    length ps)%nat).
+  { intros ps; apply filter_length_le. }
+  assert (Hlen := Hcount all_positions_grid).
+  rewrite all_positions_length in Hlen.
+  assert (Hmax : (length (filter (fun q : Pos =>
+    let '(i', j') := q in
+    Z.leb (Z.abs (Z.of_nat i - Z.of_nat i') + Z.abs (Z.of_nat j - Z.of_nat j')) 1 &&
+    negb (Z.eqb (Z.abs (Z.of_nat i - Z.of_nat i')) 0 && Z.eqb (Z.abs (Z.of_nat j - Z.of_nat j')) 0)) all_positions_grid) <= 4)%nat).
+  { admit. }
+  exact Hmax.
+Admitted.
+
 Corollary neighbors_in_bounds :
   forall p q,
     In q (neighbors p) ->
@@ -652,6 +877,17 @@ Proof.
   - intros Hhappy; unfold happy in Hhappy; rewrite Hcell in Hhappy.
     apply Nat.leb_le; assumption.
   - intros Hcount; unfold happy; rewrite Hcell; apply Nat.leb_le; assumption.
+Qed.
+
+Lemma zero_tolerance_all_happy :
+  forall g p,
+    happy 0 g p = true.
+Proof.
+  intros g p.
+  unfold happy.
+  destruct (get_cell g p) eqn:Hcell.
+  - reflexivity.
+  - simpl. reflexivity.
 Qed.
 
 (* -----------------------------------------------------------------------------
@@ -833,6 +1069,149 @@ Proof.
   destruct (happy tau g p) eqn:Hhappy; [apply IH|].
   destruct (find_destination tau g a) eqn:Hfind; [|apply IH].
   simpl. rewrite IH. reflexivity.
+Qed.
+
+(* -----------------------------------------------------------------------------
+   Relational Semantics: Alternative Characterization of Dynamics
+   ----------------------------------------------------------------------------- *)
+
+(** We provide a relational semantics as an alternative to the functional
+    definition. This is useful for reasoning about properties like
+    determinism, confluence, and for potential extensions to non-determinism. *)
+
+Inductive StepRel (tau : nat) : Grid -> Grid -> Prop :=
+  | step_rel_intro : forall g g',
+      g' = step tau g ->
+      StepRel tau g g'.
+
+Inductive StepPositionRel (tau : nat) (p : Pos) : Grid -> Grid -> Prop :=
+  | step_position_rel_intro : forall g g',
+      g' = step_position tau g p ->
+      StepPositionRel tau p g g'.
+
+Lemma step_rel_functional :
+  forall tau g g1 g2,
+    StepRel tau g g1 ->
+    StepRel tau g g2 ->
+    g1 = g2.
+Proof.
+  intros tau g g1 g2 H1 H2.
+  inversion H1; inversion H2; subst.
+  reflexivity.
+Qed.
+
+Lemma step_position_rel_functional :
+  forall tau p g g1 g2,
+    StepPositionRel tau p g g1 ->
+    StepPositionRel tau p g g2 ->
+    g1 = g2.
+Proof.
+  intros tau p g g1 g2 H1 H2.
+  inversion H1; inversion H2; subst.
+  reflexivity.
+Qed.
+
+Lemma step_rel_iff_step :
+  forall tau g g',
+    StepRel tau g g' <-> g' = step tau g.
+Proof.
+  intros tau g g'; split.
+  - intros H; inversion H; subst; reflexivity.
+  - intros H; constructor; assumption.
+Qed.
+
+Lemma step_position_rel_iff_step_position :
+  forall tau p g g',
+    StepPositionRel tau p g g' <-> g' = step_position tau g p.
+Proof.
+  intros tau p g g'; split.
+  - intros H; inversion H; subst; reflexivity.
+  - intros H; constructor; assumption.
+Qed.
+
+Theorem step_rel_deterministic :
+  forall tau g g1 g2,
+    StepRel tau g g1 ->
+    StepRel tau g g2 ->
+    g1 = g2.
+Proof.
+  intros tau g g1 g2 H1 H2.
+  apply step_rel_functional with (tau := tau) (g := g); assumption.
+Qed.
+
+Theorem step_position_rel_deterministic :
+  forall tau p g g1 g2,
+    StepPositionRel tau p g g1 ->
+    StepPositionRel tau p g g2 ->
+    g1 = g2.
+Proof.
+  intros tau p g g1 g2 H1 H2.
+  apply step_position_rel_functional with (tau := tau) (p := p) (g := g); assumption.
+Qed.
+
+Lemma step_rel_exists :
+  forall tau g,
+    exists g', StepRel tau g g'.
+Proof.
+  intros tau g.
+  exists (step tau g).
+  constructor; reflexivity.
+Qed.
+
+Lemma step_position_rel_exists :
+  forall tau p g,
+    exists g', StepPositionRel tau p g g'.
+Proof.
+  intros tau p g.
+  exists (step_position tau g p).
+  constructor; reflexivity.
+Qed.
+
+Inductive StepStar (tau : nat) : Grid -> Grid -> Prop :=
+  | step_star_refl : forall g,
+      StepStar tau g g
+  | step_star_step : forall g g' g'',
+      StepRel tau g g' ->
+      StepStar tau g' g'' ->
+      StepStar tau g g''.
+
+Lemma step_star_trans :
+  forall tau g1 g2 g3,
+    StepStar tau g1 g2 ->
+    StepStar tau g2 g3 ->
+    StepStar tau g1 g3.
+Proof.
+  intros tau g1 g2 g3 H12 H23.
+  induction H12 as [g | g g' g'' Hstep Hstar IH].
+  - assumption.
+  - apply step_star_step with (g' := g').
+    + assumption.
+    + apply IH; assumption.
+Qed.
+
+Lemma step_star_one :
+  forall tau g g',
+    StepRel tau g g' ->
+    StepStar tau g g'.
+Proof.
+  intros tau g g' H.
+  apply step_star_step with (g' := g').
+  - assumption.
+  - constructor.
+Qed.
+
+Lemma step_star_n :
+  forall tau g n,
+    StepStar tau g (Nat.iter n (step tau) g).
+Proof.
+  intros tau g n.
+  induction n as [|n' IH].
+  - simpl. constructor.
+  - change (Nat.iter (S n') (step tau) g) with (step tau (Nat.iter n' (step tau) g)).
+    eapply step_star_trans with (g2 := Nat.iter n' (step tau) g).
+    + exact IH.
+    + apply step_star_one.
+      constructor; reflexivity.
 Qed.
 
 (* -----------------------------------------------------------------------------
@@ -1046,6 +1425,14 @@ Proof.
   intros tau g Hwf; apply stable_dec_wellformed; assumption.
 Qed.
 
+Theorem zero_tolerance_stable :
+  forall g,
+    stable 0 g.
+Proof.
+  intros g p.
+  apply zero_tolerance_all_happy.
+Qed.
+
 Theorem step_parallel_stable_fixed_point :
   forall tau g,
     stable tau g ->
@@ -1058,6 +1445,21 @@ Proof.
     destruct (get_cell g p) eqn:Hcell; [apply IH|].
     rewrite (Hstable p). apply IH. }
   rewrite Hmoves. simpl. reflexivity.
+Qed.
+
+Theorem step_star_stable_fixed :
+  forall tau g g',
+    stable tau g ->
+    StepStar tau g g' ->
+    g' = g.
+Proof.
+  intros tau g g' Hstable Hstar.
+  induction Hstar as [g | g gmid g'' Hstep Hstar IH].
+  - reflexivity.
+  - apply step_rel_iff_step in Hstep.
+    rewrite step_stable_fixed_point in Hstep; [|assumption].
+    subst gmid.
+    apply IH; assumption.
 Qed.
 
 Lemma step_position_preserves_wellformed :
@@ -2158,12 +2560,50 @@ Proof.
         apply Qle_refl.
 Qed.
 
+Lemma Zpos_of_nat_Sn : forall n, Z.pos (Pos.of_nat (S n)) = Z.of_nat (S n).
+Proof.
+  intros n.
+  assert (Hpos: (0 < S n)%nat) by lia.
+  assert (Hconv: Pos.to_nat (Pos.of_nat (S n)) = S n).
+  { apply Nat2Pos.id. lia. }
+  rewrite <- Hconv at 2.
+  symmetry.
+  apply positive_nat_Z.
+Qed.
+
 Lemma global_segregation_range :
   forall g,
     (0 <= global_segregation g <= 1)%Q.
 Proof.
-  admit.
-Admitted.
+  intros g.
+  unfold global_segregation.
+  destruct (count_agents g) eqn:Hcount.
+  - split.
+    + apply Qle_refl.
+    + unfold Qle. simpl. lia.
+  - split.
+    + assert (H1: (0 <= sum_local_homophily_list g all_positions_grid)%Q).
+      { apply sum_local_homophily_nonneg. }
+      assert (H2: (0 <= 1 # Pos.of_nat (S n))%Q).
+      { unfold Qle. simpl. lia. }
+      apply Qmult_le_0_compat; assumption.
+    + assert (Hbound: (sum_local_homophily_list g all_positions_grid <=
+                       Z.of_nat (count_agents_at_positions g all_positions_grid) # 1)%Q).
+      { apply sum_local_homophily_bounded. }
+      unfold count_agents in Hcount.
+      assert (Hbound': (sum_local_homophily_list g all_positions_grid <= Z.of_nat (S n) # 1)%Q).
+      { rewrite <- Hcount. exact Hbound. }
+      clear Hbound.
+      unfold Qle in *.
+      destruct (sum_local_homophily_list g all_positions_grid) as [num den] eqn:Heq_sum.
+      cbn [Qmult Qnum Qden fst snd Pos.mul].
+      pose proof (Zpos_of_nat_Sn n) as Hconv.
+      assert (Hden_pos: (0 < Z.pos den)%Z) by apply Pos2Z.is_pos.
+      cbn [Qnum Qden fst snd] in Hbound'.
+      rewrite Z.mul_1_r in Hbound'.
+      subst.
+      nia.
+Qed.
 
 (* -----------------------------------------------------------------------------
    Convergence and Termination Analysis
@@ -2392,6 +2832,464 @@ Proof.
   - apply empty_cell_always_happy; apply Hwf1; right; apply Nat.ltb_ge; assumption.
   - apply empty_cell_always_happy; apply Hwf1; left; apply Nat.ltb_ge; assumption.
   - apply empty_cell_always_happy; apply Hwf1; left; apply Nat.ltb_ge; assumption.
+Qed.
+
+(* -----------------------------------------------------------------------------
+   Grid Isomorphism: Structural Equivalence
+   ----------------------------------------------------------------------------- *)
+
+(** Two grids are isomorphic if there exists a bijection on positions that
+    preserves the cell structure. This captures the idea that two grids are
+    "the same" up to renaming of positions. *)
+
+Definition pos_bijection (f : Pos -> Pos) : Prop :=
+  (forall p, in_bounds p -> in_bounds (f p)) /\
+  (forall p1 p2, in_bounds p1 -> in_bounds p2 -> f p1 = f p2 -> p1 = p2) /\
+  (forall q, in_bounds q -> exists p, in_bounds p /\ f p = q).
+
+Definition grid_isomorphic (g1 g2 : Grid) : Prop :=
+  exists (f : Pos -> Pos),
+    pos_bijection f /\
+    (forall p, in_bounds p -> get_cell g1 p = get_cell g2 (f p)).
+
+Lemma pos_bijection_id :
+  pos_bijection (fun p => p).
+Proof.
+  unfold pos_bijection; repeat split; intros.
+  - assumption.
+  - assumption.
+  - exists q; split; [assumption | reflexivity].
+Qed.
+
+Lemma grid_isomorphic_refl :
+  forall g,
+    grid_isomorphic g g.
+Proof.
+  intros g.
+  exists (fun p => p).
+  split.
+  - apply pos_bijection_id.
+  - intros p Hp; reflexivity.
+Qed.
+
+Lemma pos_bijection_has_inverse :
+  forall f,
+    pos_bijection f ->
+    (forall p1 p2, in_bounds p1 -> in_bounds p2 -> f p1 = f p2 -> p1 = p2) /\
+    (forall q, in_bounds q -> exists p, in_bounds p /\ f p = q).
+Proof.
+  intros f [Hdom [Hinj Hsurj]].
+  split; assumption.
+Qed.
+
+Fixpoint find_inverse_in_list (f : Pos -> Pos) (q : Pos) (ps : list Pos) : option Pos :=
+  match ps with
+  | [] => None
+  | p :: ps' => if pos_eqb (f p) q then Some p else find_inverse_in_list f q ps'
+  end.
+
+Lemma find_inverse_in_list_some :
+  forall f q ps p,
+    find_inverse_in_list f q ps = Some p ->
+    In p ps /\ f p = q.
+Proof.
+  intros f q ps; induction ps as [|p' ps' IH]; intros p H; simpl in H.
+  - discriminate.
+  - destruct (pos_eqb (f p') q) eqn:E.
+    + injection H as H; subst p'.
+      split; [left; reflexivity | apply pos_eqb_eq; assumption].
+    + destruct (IH p H) as [Hin Heq].
+      split; [right; assumption | assumption].
+Qed.
+
+Lemma pos_eqb_false_iff :
+  forall p q,
+    pos_eqb p q = false <-> p <> q.
+Proof.
+  intros p q; split.
+  - intros H Hcontra; subst q.
+    rewrite pos_eqb_refl in H; discriminate.
+  - apply pos_eqb_neq.
+Qed.
+
+Lemma find_inverse_in_list_none :
+  forall f q ps,
+    find_inverse_in_list f q ps = None ->
+    forall p, In p ps -> f p <> q.
+Proof.
+  intros f q ps; induction ps as [|p' ps' IH]; intros H p Hin; simpl in H.
+  - inversion Hin.
+  - destruct (pos_eqb (f p') q) eqn:E.
+    + discriminate.
+    + destruct Hin as [Heq | Hin'].
+      * subst p'; intros Hcontra.
+        rewrite pos_eqb_false_iff in E.
+        contradiction.
+      * apply IH; assumption.
+Qed.
+
+Lemma find_inverse_in_list_complete :
+  forall f q ps p,
+    In p ps ->
+    f p = q ->
+    exists p', find_inverse_in_list f q ps = Some p' /\ f p' = q.
+Proof.
+  intros f q ps; induction ps as [|phd ps' IH]; intros p Hin Heq.
+  - inversion Hin.
+  - simpl. destruct (pos_eqb (f phd) q) eqn:E.
+    + exists phd; split; [reflexivity | apply pos_eqb_eq; assumption].
+    + destruct Hin as [Heq' | Hin'].
+      * subst phd.
+        exfalso.
+        rewrite pos_eqb_false_iff in E.
+        contradiction.
+      * apply (IH p); assumption.
+Qed.
+
+Definition inverse_from_list (f : Pos -> Pos) (q : Pos) : Pos :=
+  match find_inverse_in_list f q all_positions_grid with
+  | Some p => p
+  | None => q
+  end.
+
+Lemma inverse_from_list_correct :
+  forall f q,
+    pos_bijection f ->
+    in_bounds q ->
+    in_bounds (inverse_from_list f q) /\ f (inverse_from_list f q) = q.
+Proof.
+  intros f q [Hdom [Hinj Hsurj]] Hq.
+  unfold inverse_from_list.
+  destruct (Hsurj q Hq) as [p [Hp Heq]].
+  assert (Hin : In p all_positions_grid).
+  { apply all_positions_complete; assumption. }
+  destruct (find_inverse_in_list_complete f q all_positions_grid p Hin Heq) as [p' [Hfind Heq']].
+  rewrite Hfind.
+  split.
+  - apply find_inverse_in_list_some in Hfind.
+    destruct Hfind as [Hin' _].
+    apply all_positions_only_in_bounds; assumption.
+  - apply find_inverse_in_list_some in Hfind.
+    destruct Hfind as [_ Heq''].
+    assumption.
+Qed.
+
+Lemma inverse_from_list_injective :
+  forall f q1 q2,
+    pos_bijection f ->
+    in_bounds q1 ->
+    in_bounds q2 ->
+    inverse_from_list f q1 = inverse_from_list f q2 ->
+    q1 = q2.
+Proof.
+  intros f q1 q2 Hbij Hq1 Hq2 Heq.
+  destruct (inverse_from_list_correct f q1 Hbij Hq1) as [_ H1].
+  destruct (inverse_from_list_correct f q2 Hbij Hq2) as [_ H2].
+  rewrite <- H1, <- H2.
+  rewrite Heq.
+  reflexivity.
+Qed.
+
+Lemma inverse_from_list_surjective :
+  forall f p,
+    pos_bijection f ->
+    in_bounds p ->
+    exists q, in_bounds q /\ inverse_from_list f q = p.
+Proof.
+  intros f p [Hdom [Hinj Hsurj]] Hp.
+  exists (f p).
+  split.
+  - apply Hdom; assumption.
+  - unfold inverse_from_list.
+    assert (Hin : In p all_positions_grid).
+    { apply all_positions_complete; assumption. }
+    destruct (find_inverse_in_list_complete f (f p) all_positions_grid p Hin eq_refl) as [p' [Hfind Heq]].
+    rewrite Hfind.
+    apply find_inverse_in_list_some in Hfind.
+    destruct Hfind as [Hin' Heq'].
+    assert (Hp' : in_bounds p').
+    { apply all_positions_only_in_bounds; assumption. }
+    apply Hinj; assumption.
+Qed.
+
+Lemma inverse_from_list_is_bijection :
+  forall f,
+    pos_bijection f ->
+    pos_bijection (inverse_from_list f).
+Proof.
+  intros f Hbij.
+  unfold pos_bijection; repeat split; intros.
+  - destruct (inverse_from_list_correct f p Hbij H) as [Hp _].
+    assumption.
+  - apply (inverse_from_list_injective f); assumption.
+  - apply (inverse_from_list_surjective f); assumption.
+Qed.
+
+Lemma inverse_from_list_left_inverse :
+  forall f p,
+    pos_bijection f ->
+    in_bounds p ->
+    inverse_from_list f (f p) = p.
+Proof.
+  intros f p Hbij Hp.
+  destruct Hbij as [Hdom [Hinj Hsurj]].
+  unfold inverse_from_list.
+  assert (Hin : In p all_positions_grid).
+  { apply all_positions_complete; assumption. }
+  destruct (find_inverse_in_list_complete f (f p) all_positions_grid p Hin eq_refl) as [p' [Hfind Heq]].
+  rewrite Hfind.
+  apply find_inverse_in_list_some in Hfind.
+  destruct Hfind as [Hin' Heq'].
+  assert (Hp' : in_bounds p').
+  { apply all_positions_only_in_bounds; assumption. }
+  apply Hinj; assumption.
+Qed.
+
+Lemma inverse_from_list_right_inverse :
+  forall f q,
+    pos_bijection f ->
+    in_bounds q ->
+    f (inverse_from_list f q) = q.
+Proof.
+  intros f q Hbij Hq.
+  destruct (inverse_from_list_correct f q Hbij Hq) as [_ H].
+  assumption.
+Qed.
+
+Lemma grid_isomorphic_sym :
+  forall g1 g2,
+    grid_isomorphic g1 g2 ->
+    grid_isomorphic g2 g1.
+Proof.
+  intros g1 g2 [f [Hbij Hcells]].
+  exists (inverse_from_list f).
+  split.
+  - apply inverse_from_list_is_bijection; assumption.
+  - intros p Hp.
+    set (ginv := inverse_from_list f).
+    assert (Hgp : in_bounds (ginv p)).
+    { unfold ginv. destruct (inverse_from_list_correct f p Hbij Hp) as [H _]; exact H. }
+    assert (Hfgp : f (ginv p) = p).
+    { unfold ginv. apply inverse_from_list_right_inverse; assumption. }
+    transitivity (get_cell g2 (f (ginv p))).
+    + rewrite Hfgp; reflexivity.
+    + symmetry; apply Hcells; assumption.
+Qed.
+
+Lemma pos_bijection_compose :
+  forall f g,
+    pos_bijection f ->
+    pos_bijection g ->
+    pos_bijection (fun p => g (f p)).
+Proof.
+  intros f g [Hdomf [Hinjf Hsurf]] [Hdomg [Hinjg Hsurjg]].
+  unfold pos_bijection; repeat split; intros.
+  - apply Hdomg; apply Hdomf; assumption.
+  - apply Hinjf; try assumption.
+    apply Hinjg; try (apply Hdomf; assumption).
+    assumption.
+  - destruct (Hsurjg q H) as [p' [Hp' Heq']].
+    destruct (Hsurf p' Hp') as [p [Hp Heq]].
+    exists p; split; [assumption|].
+    rewrite Heq; assumption.
+Qed.
+
+Lemma grid_isomorphic_trans :
+  forall g1 g2 g3,
+    grid_isomorphic g1 g2 ->
+    grid_isomorphic g2 g3 ->
+    grid_isomorphic g1 g3.
+Proof.
+  intros g1 g2 g3 [f [Hbijf Hcellsf]] [g [Hbijg Hcellsg]].
+  exists (fun p => g (f p)).
+  split.
+  - apply pos_bijection_compose; assumption.
+  - intros p Hp.
+    rewrite Hcellsf by assumption.
+    apply Hcellsg.
+    destruct Hbijf as [Hdomf _].
+    apply Hdomf; assumption.
+Qed.
+
+Theorem grid_isomorphic_equivalence :
+  Equivalence grid_isomorphic.
+Proof.
+  constructor.
+  - intros g; apply grid_isomorphic_refl.
+  - intros g1 g2; apply grid_isomorphic_sym.
+  - intros g1 g2 g3; apply grid_isomorphic_trans.
+Qed.
+
+Fixpoint map_positions (f : Pos -> Pos) (ps : list Pos) : list Pos :=
+  match ps with
+  | [] => []
+  | p :: ps' => f p :: map_positions f ps'
+  end.
+
+Lemma map_positions_spec :
+  forall f ps,
+    map_positions f ps = map f ps.
+Proof.
+  intros f ps.
+  induction ps as [|p ps' IH]; simpl; [reflexivity|].
+  rewrite IH; reflexivity.
+Qed.
+
+Lemma map_positions_length :
+  forall f ps,
+    length (map_positions f ps) = length ps.
+Proof.
+  intros f ps.
+  rewrite map_positions_spec.
+  apply map_length.
+Qed.
+
+Lemma in_map_positions :
+  forall f ps q,
+    In q (map_positions f ps) <-> exists p, In p ps /\ f p = q.
+Proof.
+  intros f ps q.
+  rewrite map_positions_spec.
+  split; intros H.
+  - apply in_map_iff in H.
+    destruct H as [p [Heq Hin]].
+    exists p; split; assumption.
+  - destruct H as [p [Hin Heq]].
+    apply in_map_iff.
+    exists p; split; assumption.
+Qed.
+
+Lemma bijection_map_NoDup :
+  forall f ps,
+    pos_bijection f ->
+    (forall p, In p ps -> in_bounds p) ->
+    NoDup ps ->
+    NoDup (map_positions f ps).
+Proof.
+  intros f ps [Hdom [Hinj Hsurj]] Hbound Hnodup.
+  rewrite map_positions_spec.
+  induction Hnodup as [|p ps' Hnotin Hnodup' IH].
+  - simpl; constructor.
+  - simpl; constructor.
+    + intros Hcontra.
+      apply in_map_iff in Hcontra.
+      destruct Hcontra as [p' [Heq Hin']].
+      assert (Hp : in_bounds p) by (apply Hbound; left; reflexivity).
+      assert (Hp' : in_bounds p') by (apply Hbound; right; assumption).
+      apply Hinj in Heq; try assumption.
+      subst p'.
+      contradiction.
+    + apply IH.
+      intros q Hq.
+      apply Hbound; right; assumption.
+Qed.
+
+Lemma bijection_map_covers :
+  forall f ps q,
+    pos_bijection f ->
+    (forall p, In p ps -> in_bounds p) ->
+    in_bounds q ->
+    In q (map_positions f ps) ->
+    exists p, In p ps /\ f p = q.
+Proof.
+  intros f ps q Hbij Hbound Hq Hin.
+  rewrite in_map_positions in Hin.
+  assumption.
+Qed.
+
+Lemma bijection_induces_permutation_on_all_positions :
+  forall f,
+    pos_bijection f ->
+    Permutation all_positions_grid (map_positions f all_positions_grid).
+Proof.
+  intros f Hbij.
+  apply NoDup_Permutation.
+  - apply all_positions_grid_NoDup.
+  - apply bijection_map_NoDup; try assumption.
+    + intros p Hp; apply all_positions_only_in_bounds; assumption.
+    + apply all_positions_grid_NoDup.
+  - intros q; split; intros Hin.
+    + rewrite in_map_positions.
+      destruct Hbij as [Hdom [Hinj Hsurj]].
+      assert (Hq : in_bounds q) by (apply all_positions_only_in_bounds; assumption).
+      destruct (Hsurj q Hq) as [p [Hp Heq]].
+      exists p; split.
+      * apply all_positions_complete; assumption.
+      * assumption.
+    + rewrite in_map_positions in Hin.
+      destruct Hin as [p [Hp Heq]].
+      subst q.
+      apply all_positions_complete.
+      destruct Hbij as [Hdom _].
+      assert (Hpbound : in_bounds p) by (apply all_positions_only_in_bounds; assumption).
+      apply Hdom; assumption.
+Qed.
+
+Lemma count_agents_in_cells_map_eq :
+  forall g1 g2 ps f,
+    pos_bijection f ->
+    (forall p, In p ps -> in_bounds p) ->
+    (forall p, In p ps -> get_cell g1 p = get_cell g2 (f p)) ->
+    count_agents_in_cells (map (get_cell g1) ps) =
+    count_agents_in_cells (map (get_cell g2) (map_positions f ps)).
+Proof.
+  intros g1 g2 ps f Hbij Hbound Hcells.
+  induction ps as [|p ps' IH]; simpl.
+  - reflexivity.
+  - rewrite map_positions_spec; simpl.
+    rewrite <- Hcells by (left; reflexivity).
+    destruct (get_cell g1 p); simpl.
+    + rewrite <- map_positions_spec.
+      apply IH.
+      intros q Hq; apply Hbound; right; assumption.
+      intros q Hq; apply Hcells; right; assumption.
+    + f_equal.
+      rewrite <- map_positions_spec.
+      apply IH.
+      intros q Hq; apply Hbound; right; assumption.
+      intros q Hq; apply Hcells; right; assumption.
+Qed.
+
+Lemma count_agents_permutation :
+  forall g ps1 ps2,
+    Permutation ps1 ps2 ->
+    count_agents_in_cells (map (get_cell g) ps1) =
+    count_agents_in_cells (map (get_cell g) ps2).
+Proof.
+  intros g ps1 ps2 Hperm.
+  induction Hperm as [|x l1 l2 Hperm IH | x y l | l1 l2 l3 Hperm12 IH12 Hperm23 IH23].
+  - reflexivity.
+  - simpl.
+    destruct (get_cell g x); simpl.
+    + apply IH.
+    + f_equal; apply IH.
+  - simpl.
+    destruct (get_cell g x), (get_cell g y); simpl; reflexivity.
+  - rewrite IH12, IH23; reflexivity.
+Qed.
+
+Lemma grid_isomorphic_preserves_agent_count :
+  forall g1 g2,
+    wellformed_grid g1 ->
+    wellformed_grid g2 ->
+    grid_isomorphic g1 g2 ->
+    count_agents g1 = count_agents g2.
+Proof.
+  intros g1 g2 Hwf1 Hwf2 [f [Hbij Hcells]].
+  unfold count_agents, count_agents_at_positions.
+  assert (Hbound : forall p, In p all_positions_grid -> in_bounds p).
+  { intros p Hp; apply all_positions_only_in_bounds; assumption. }
+  assert (Hcells' : forall p, In p all_positions_grid -> get_cell g1 p = get_cell g2 (f p)).
+  { intros p Hin; apply Hcells; apply Hbound; assumption. }
+  transitivity (count_agents_in_cells (map (get_cell g2) (map_positions f all_positions_grid))).
+  + apply count_agents_in_cells_map_eq with (f := f).
+    * exact Hbij.
+    * exact Hbound.
+    * exact Hcells'.
+  + apply count_agents_permutation.
+    symmetry.
+    apply bijection_induces_permutation_on_all_positions.
+    assumption.
 Qed.
 
 (* -----------------------------------------------------------------------------
@@ -4138,6 +5036,158 @@ Section Examples.
 
 Hypothesis grid_3x3 : grid_size = 3%nat.
 Hypothesis radius_1 : neighborhood_radius = 1%nat.
+
+(* Concrete agent examples using parametric Agent type *)
+Variable RedAgent : Agent.
+Variable BlueAgent : Agent.
+Hypothesis RedBlue_distinct : RedAgent <> BlueAgent.
+Hypothesis Red_neq_Blue : agent_eqb RedAgent BlueAgent = false.
+
+Definition redblue_checkerboard : Grid :=
+  set_cell (set_cell (set_cell (set_cell empty_grid
+    (0%nat, 0%nat) (Occupied RedAgent))
+    (0%nat, 1%nat) (Occupied BlueAgent))
+    (1%nat, 0%nat) (Occupied BlueAgent))
+    (1%nat, 1%nat) (Occupied RedAgent).
+
+Example checkerboard_wellformed :
+  wellformed_grid redblue_checkerboard.
+Proof.
+  unfold redblue_checkerboard.
+  repeat (apply set_cell_preserves_wellformed;
+          [| unfold in_bounds; simpl; rewrite grid_3x3; lia]).
+  apply empty_grid_wellformed.
+Qed.
+
+Example checkerboard_count :
+  count_agents redblue_checkerboard = 4%nat.
+Proof.
+  unfold count_agents, count_agents_at_positions, redblue_checkerboard.
+  unfold all_positions_grid.
+  rewrite grid_3x3.
+  simpl.
+  unfold get_cell, set_cell, pos_eqb, empty_grid.
+  simpl.
+  reflexivity.
+Qed.
+
+Definition red_cluster : Grid :=
+  set_cell (set_cell (set_cell empty_grid
+    (0%nat, 0%nat) (Occupied RedAgent))
+    (0%nat, 1%nat) (Occupied RedAgent))
+    (1%nat, 0%nat) (Occupied RedAgent).
+
+Example red_cluster_happy_tau_1 :
+  happy 1 red_cluster (0%nat, 0%nat) = true.
+Proof.
+  unfold happy, red_cluster.
+  unfold get_cell, set_cell, pos_eqb.
+  simpl.
+  unfold neighbor_cells, neighbors.
+  unfold moore_neighbor, all_positions_grid.
+  rewrite grid_3x3, radius_1.
+  simpl.
+  unfold count_same.
+  unfold get_cell, set_cell, pos_eqb.
+  simpl.
+  rewrite agent_eqb_refl.
+  simpl.
+  reflexivity.
+Qed.
+
+Definition isolated_blue : Grid :=
+  set_cell (set_cell (set_cell (set_cell empty_grid
+    (1%nat, 1%nat) (Occupied BlueAgent))
+    (0%nat, 0%nat) (Occupied RedAgent))
+    (0%nat, 2%nat) (Occupied RedAgent))
+    (2%nat, 0%nat) (Occupied RedAgent).
+
+Example isolated_blue_unhappy_tau_1 :
+  happy 1 isolated_blue (1%nat, 1%nat) = false.
+Proof.
+  unfold happy, isolated_blue.
+  unfold get_cell, set_cell, pos_eqb.
+  simpl.
+  unfold neighbor_cells, neighbors.
+  unfold moore_neighbor, all_positions_grid.
+  rewrite grid_3x3, radius_1.
+  simpl.
+  unfold count_same.
+  unfold get_cell, set_cell, pos_eqb, empty_grid.
+  simpl.
+  assert (agent_eqb BlueAgent RedAgent = false).
+  { destruct (agent_eqb BlueAgent RedAgent) eqn:E.
+    - apply agent_eqb_eq in E. subst. rewrite agent_eqb_refl in Red_neq_Blue. discriminate.
+    - reflexivity. }
+  rewrite H. simpl. reflexivity.
+Qed.
+
+Definition segregated_grid : Grid :=
+  set_cell (set_cell (set_cell (set_cell (set_cell (set_cell empty_grid
+    (0%nat, 0%nat) (Occupied RedAgent))
+    (0%nat, 1%nat) (Occupied RedAgent))
+    (1%nat, 0%nat) (Occupied RedAgent))
+    (1%nat, 2%nat) (Occupied BlueAgent))
+    (2%nat, 1%nat) (Occupied BlueAgent))
+    (2%nat, 2%nat) (Occupied BlueAgent).
+
+Example segregated_stable_tau_2 :
+  stable 2 segregated_grid.
+Proof.
+  unfold stable. intros [i j].
+  destruct i as [|[|[|i']]]; destruct j as [|[|[|j']]];
+    try (apply empty_cell_always_happy; unfold segregated_grid, get_cell, set_cell, pos_eqb, empty_grid;
+         simpl; reflexivity);
+    unfold happy, segregated_grid, get_cell, set_cell, pos_eqb;
+    simpl; unfold neighbor_cells, neighbors, moore_neighbor, all_positions_grid;
+    rewrite grid_3x3, radius_1; simpl; unfold count_same, get_cell, set_cell, pos_eqb;
+    simpl; rewrite ?agent_eqb_refl;
+    try (assert (agent_eqb BlueAgent RedAgent = false) by
+           (destruct (agent_eqb BlueAgent RedAgent) eqn:E;
+            [apply agent_eqb_eq in E; subst; rewrite agent_eqb_refl in Red_neq_Blue; discriminate | reflexivity]);
+         rewrite H; simpl; reflexivity);
+    simpl; reflexivity.
+Qed.
+
+Example segregated_conserves_agents :
+  count_agents (step 2 segregated_grid) = count_agents segregated_grid.
+Proof.
+  apply step_preserves_agent_count.
+Qed.
+
+Example segregated_is_fixpoint :
+  step 2 segregated_grid = segregated_grid.
+Proof.
+  apply step_stable_fixed_point.
+  apply segregated_stable_tau_2.
+Qed.
+
+Definition mixing_grid : Grid :=
+  set_cell (set_cell (set_cell empty_grid
+    (0%nat, 0%nat) (Occupied RedAgent))
+    (1%nat, 1%nat) (Occupied BlueAgent))
+    (2%nat, 2%nat) (Occupied RedAgent).
+
+Example mixing_grid_wellformed :
+  wellformed_grid mixing_grid.
+Proof.
+  unfold mixing_grid.
+  repeat (apply set_cell_preserves_wellformed;
+          [| unfold in_bounds; simpl; rewrite grid_3x3; lia]).
+  apply empty_grid_wellformed.
+Qed.
+
+Example mixing_grid_count :
+  count_agents mixing_grid = 3%nat.
+Proof.
+  unfold count_agents, count_agents_at_positions, mixing_grid.
+  unfold all_positions_grid.
+  rewrite grid_3x3.
+  simpl.
+  unfold get_cell, set_cell, pos_eqb, empty_grid.
+  simpl.
+  reflexivity.
+Qed.
 
 Example ex_empty_grid_stable :
   stable 0 empty_grid.
