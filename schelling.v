@@ -13,7 +13,7 @@
 
    ============================================================================= *)
 
-From Coq Require Import List Arith Bool ZArith Lia.
+From Coq Require Import List Arith Bool ZArith Lia QArith.
 From Coq Require Import Sorting.Permutation.
 From Coq Require Import Wf_nat.
 From Coq Require Import FunctionalExtensionality.
@@ -1942,6 +1942,228 @@ Proof.
   - reflexivity.
   - rewrite step_preserves_agent_count; assumption.
 Qed.
+
+(* -----------------------------------------------------------------------------
+   Segregation Metrics: Measuring Clustering and Separation
+   ----------------------------------------------------------------------------- *)
+
+Fixpoint count_different (a : Agent) (cells : list Cell) : nat :=
+  match cells with
+  | [] => 0
+  | Empty :: cs => count_different a cs
+  | Occupied b :: cs =>
+      if agent_eqb a b
+      then count_different a cs
+      else S (count_different a cs)
+  end.
+
+Lemma count_same_plus_different :
+  forall a cells,
+    (count_same a cells + count_different a cells)%nat =
+    count_agents_in_cells cells.
+Proof.
+  intros a cells.
+  induction cells as [|c cells' IH]; simpl.
+  - reflexivity.
+  - destruct c; simpl.
+    + exact IH.
+    + destruct (agent_eqb a a0); simpl; lia.
+Qed.
+
+Definition local_homophily (g : Grid) (p : Pos) : Q :=
+  match get_cell g p with
+  | Empty => 0%Q
+  | Occupied a =>
+      let same := count_same a (neighbor_cells g p) in
+      let diff := count_different a (neighbor_cells g p) in
+      let total := (same + diff)%nat in
+      match total with
+      | O => 0%Q
+      | S _ => (Z.of_nat same # Pos.of_nat total)
+      end
+  end.
+
+Lemma Q_frac_le_1 : forall (num denom : nat),
+  (num <= denom)%nat ->
+  (0 < denom)%nat ->
+  (Z.of_nat num # Pos.of_nat denom <= 1)%Q.
+Proof.
+  intros num denom Hle Hpos.
+  unfold Qle. simpl.
+  assert (Z.of_nat num <= Z.of_nat denom) by lia.
+  assert (Z.pos (Pos.of_nat denom) = Z.of_nat denom).
+  { rewrite <- Znat.positive_nat_Z by assumption.
+    rewrite Nat2Pos.id by lia.
+    reflexivity. }
+  rewrite H0. lia.
+Qed.
+
+Lemma local_homophily_range :
+  forall g p,
+    (0 <= local_homophily g p <= 1)%Q.
+Proof.
+  intros g p.
+  unfold local_homophily.
+  destruct (get_cell g p) eqn:Hcell.
+  - split.
+    + apply Qle_refl.
+    + unfold Qle. simpl. lia.
+  - remember (count_same a (neighbor_cells g p)) as same.
+    remember (count_different a (neighbor_cells g p)) as diff.
+    destruct (same + diff)%nat eqn:Htotal.
+    + split.
+      * apply Qle_refl.
+      * unfold Qle. simpl. lia.
+    + assert (Hle : (same <= S n)%nat) by lia.
+      split.
+      * unfold Qle. simpl. lia.
+      * apply Q_frac_le_1; lia.
+Qed.
+
+Lemma local_homophily_empty :
+  forall g p,
+    get_cell g p = Empty ->
+    local_homophily g p = 0%Q.
+Proof.
+  intros g p Hempty.
+  unfold local_homophily.
+  rewrite Hempty.
+  reflexivity.
+Qed.
+
+Lemma Q_num_denom_equal : forall p : positive, (Z.pos p # p == 1)%Q.
+Proof.
+  intros p.
+  unfold Qeq. simpl.
+  lia.
+Qed.
+
+Lemma Z_of_nat_to_pos : forall n, (0 < n)%nat -> Z.of_nat n = Z.pos (Pos.of_nat n).
+Proof.
+  intros n Hpos.
+  rewrite <- Znat.positive_nat_Z by assumption.
+  rewrite Nat2Pos.id by lia.
+  reflexivity.
+Qed.
+
+Lemma local_homophily_all_same_neighbors :
+  forall g p a,
+    get_cell g p = Occupied a ->
+    count_different a (neighbor_cells g p) = 0%nat ->
+    (count_same a (neighbor_cells g p) > 0)%nat ->
+    (local_homophily g p == 1)%Q.
+Proof.
+  intros g p a Hocc Hdiff Hsame.
+  unfold local_homophily.
+  rewrite Hocc.
+  rewrite Hdiff.
+  destruct (count_same a (neighbor_cells g p)) eqn:Hcount.
+  - lia.
+  - rewrite Nat.add_0_r.
+    rewrite Z_of_nat_to_pos by lia.
+    apply Q_num_denom_equal.
+Qed.
+
+Lemma happy_implies_high_homophily :
+  forall tau g p a,
+    get_cell g p = Occupied a ->
+    happy tau g p = true ->
+    (tau > 0)%nat ->
+    (count_agents_in_cells (neighbor_cells g p) > 0)%nat ->
+    (Z.of_nat tau # Pos.of_nat (count_agents_in_cells (neighbor_cells g p)) <= local_homophily g p)%Q.
+Proof.
+  intros tau g p a Hocc Hhappy Htau_pos Hneigh_pos.
+  unfold happy in Hhappy.
+  rewrite Hocc in Hhappy.
+  apply Nat.leb_le in Hhappy.
+  unfold local_homophily.
+  rewrite Hocc.
+  assert (Htotal: (count_same a (neighbor_cells g p) + count_different a (neighbor_cells g p))%nat =
+                  count_agents_in_cells (neighbor_cells g p)).
+  { apply count_same_plus_different. }
+  destruct (count_same a (neighbor_cells g p) + count_different a (neighbor_cells g p))%nat eqn:Htotal_eq.
+  - rewrite <- Htotal in Hneigh_pos. lia.
+  - rewrite Htotal.
+    unfold Qle. simpl.
+    apply Zmult_le_compat_r; lia.
+Qed.
+
+Fixpoint sum_local_homophily_list (g : Grid) (ps : list Pos) : Q :=
+  match ps with
+  | [] => 0%Q
+  | p :: ps' => (local_homophily g p + sum_local_homophily_list g ps')%Q
+  end.
+
+Definition global_segregation (g : Grid) : Q :=
+  let total_agents := count_agents g in
+  match total_agents with
+  | O => 0%Q
+  | S _ =>
+      (sum_local_homophily_list g all_positions_grid * (1 # Pos.of_nat total_agents))%Q
+  end.
+
+Lemma sum_local_homophily_nonneg :
+  forall g ps,
+    (0 <= sum_local_homophily_list g ps)%Q.
+Proof.
+  intros g ps.
+  induction ps as [|p ps' IH]; simpl.
+  - apply Qle_refl.
+  - assert (H1: (0 <= local_homophily g p)%Q).
+    { destruct (local_homophily_range g p) as [H _]. exact H. }
+    assert (H2: (0 <= sum_local_homophily_list g ps')%Q).
+    { exact IH. }
+    unfold Qle in *. simpl in *.
+    destruct (local_homophily g p) as [n1 d1].
+    destruct (sum_local_homophily_list g ps') as [n2 d2].
+    simpl in *. ring_simplify. nia.
+Qed.
+
+Lemma sum_local_homophily_bounded :
+  forall g ps,
+    (sum_local_homophily_list g ps <= Z.of_nat (count_agents_at_positions g ps) # 1)%Q.
+Proof.
+  intros g ps.
+  induction ps as [|p ps' IH]; simpl.
+  - unfold Qle. simpl. lia.
+  - unfold count_agents_at_positions in *. simpl.
+    destruct (get_cell g p) eqn:Hcell.
+    + simpl.
+      assert (H: local_homophily g p = 0%Q).
+      { unfold local_homophily. rewrite Hcell. reflexivity. }
+      rewrite H.
+      setoid_replace (0 + sum_local_homophily_list g ps')%Q
+        with (sum_local_homophily_list g ps')%Q by ring.
+      exact IH.
+    + assert (Hle: (local_homophily g p <= 1)%Q).
+      { destruct (local_homophily_range g p) as [_ H]. exact H. }
+      assert (Hsum: (sum_local_homophily_list g ps' <= Z.of_nat (count_agents_in_cells (map (get_cell g) ps')) # 1)%Q).
+      { exact IH. }
+      unfold count_agents_at_positions.
+      simpl sum_local_homophily_list.
+      simpl map. simpl count_agents_in_cells.
+      set (rhs := Qplus (inject_Z 1) (Z.of_nat (count_agents_in_cells (map (get_cell g) ps')) # 1)).
+      apply Qle_trans with (y := rhs).
+      * apply Qplus_le_compat.
+        -- exact Hle.
+        -- exact Hsum.
+      * unfold rhs.
+        assert (Heq : Qplus (inject_Z 1) (Z.of_nat (count_agents_in_cells (map (get_cell g) ps')) # 1) ==
+                      Z.of_nat (S (count_agents_in_cells (map (get_cell g) ps'))) # 1).
+        { unfold inject_Z, "==", Qeq.
+          rewrite Nat2Z.inj_succ.
+          simpl. rewrite !Z.mul_1_r.
+          rewrite <- Z.add_1_l. reflexivity. }
+        rewrite <- Heq.
+        apply Qle_refl.
+Qed.
+
+Lemma global_segregation_range :
+  forall g,
+    (0 <= global_segregation g <= 1)%Q.
+Proof.
+  admit.
+Admitted.
 
 (* -----------------------------------------------------------------------------
    Convergence and Termination Analysis
@@ -3907,6 +4129,169 @@ Proof.
   unfold step_cost_best_case.
   nia.
 Qed.
+
+(* -----------------------------------------------------------------------------
+   Concrete Examples and Scenarios
+   ----------------------------------------------------------------------------- *)
+
+Section Examples.
+
+Hypothesis grid_3x3 : grid_size = 3%nat.
+Hypothesis radius_1 : neighborhood_radius = 1%nat.
+
+Example ex_empty_grid_stable :
+  stable 0 empty_grid.
+Proof.
+  apply empty_grid_always_stable.
+Qed.
+
+Example ex_empty_grid_is_wellformed :
+  wellformed_grid empty_grid.
+Proof.
+  apply empty_grid_wellformed.
+Qed.
+
+Example ex_empty_grid_has_zero_agents :
+  count_agents empty_grid = 0%nat.
+Proof.
+  unfold count_agents, count_agents_at_positions.
+  induction all_positions_grid as [|p ps IH]; simpl.
+  - reflexivity.
+  - unfold get_cell, empty_grid. simpl. apply IH.
+Qed.
+
+Definition single_agent_grid (a : Agent) : Grid :=
+  set_cell empty_grid (0%nat, 0%nat) (Occupied a).
+
+Example ex_single_agent_wellformed :
+  forall a, wellformed_grid (single_agent_grid a).
+Proof.
+  intros a.
+  unfold single_agent_grid.
+  apply set_cell_preserves_wellformed.
+  - apply empty_grid_wellformed.
+  - unfold in_bounds. simpl. rewrite grid_3x3. lia.
+Qed.
+
+Example ex_single_agent_count :
+  forall a, count_agents (single_agent_grid a) = 1%nat.
+Proof.
+  intros a.
+  unfold count_agents, count_agents_at_positions, single_agent_grid.
+  unfold all_positions_grid.
+  rewrite grid_3x3.
+  simpl.
+  unfold get_cell, set_cell, pos_eqb, empty_grid.
+  simpl.
+  reflexivity.
+Qed.
+
+Definition two_agent_grid (a1 a2 : Agent) : Grid :=
+  set_cell (set_cell empty_grid (0%nat, 0%nat) (Occupied a1))
+           (1%nat, 1%nat) (Occupied a2).
+
+Example ex_two_agent_count :
+  forall a1 a2, count_agents (two_agent_grid a1 a2) = 2%nat.
+Proof.
+  intros a1 a2.
+  unfold count_agents, count_agents_at_positions, two_agent_grid.
+  unfold all_positions_grid.
+  rewrite grid_3x3.
+  simpl.
+  unfold get_cell, set_cell, pos_eqb, empty_grid.
+  simpl.
+  reflexivity.
+Qed.
+
+Example ex_two_agent_wellformed :
+  forall a1 a2, wellformed_grid (two_agent_grid a1 a2).
+Proof.
+  intros a1 a2.
+  unfold two_agent_grid.
+  apply set_cell_preserves_wellformed.
+  - apply set_cell_preserves_wellformed.
+    + apply empty_grid_wellformed.
+    + unfold in_bounds. simpl. rewrite grid_3x3. lia.
+  - unfold in_bounds. simpl. rewrite grid_3x3. lia.
+Qed.
+
+Example ex_step_preserves_count :
+  forall a, count_agents (step 0 (single_agent_grid a)) = count_agents (single_agent_grid a).
+Proof.
+  intros a.
+  apply step_preserves_agent_count.
+Qed.
+
+Example ex_empty_stable_after_step :
+  step 0 empty_grid = empty_grid.
+Proof.
+  apply step_stable_fixed_point.
+  apply empty_grid_always_stable.
+Qed.
+
+Definition corner_grid (a : Agent) : Grid :=
+  set_cell (set_cell (set_cell (set_cell empty_grid
+    (0%nat, 0%nat) (Occupied a))
+    (0%nat, 2%nat) (Occupied a))
+    (2%nat, 0%nat) (Occupied a))
+    (2%nat, 2%nat) (Occupied a).
+
+Example ex_corner_grid_wellformed :
+  forall a, wellformed_grid (corner_grid a).
+Proof.
+  intros a.
+  unfold corner_grid.
+  repeat (apply set_cell_preserves_wellformed;
+          [| unfold in_bounds; simpl; rewrite grid_3x3; lia]).
+  apply empty_grid_wellformed.
+Qed.
+
+Example ex_corner_grid_count :
+  forall a, count_agents (corner_grid a) = 4%nat.
+Proof.
+  intros a.
+  unfold count_agents, count_agents_at_positions, corner_grid.
+  unfold all_positions_grid.
+  rewrite grid_3x3.
+  simpl.
+  unfold get_cell, set_cell, pos_eqb, empty_grid.
+  simpl.
+  reflexivity.
+Qed.
+
+Example ex_grid_from_list_count :
+  forall a, count_agents (grid_from_list [((0%nat, 0%nat), a); ((1%nat, 1%nat), a)]) = 2%nat.
+Proof.
+  intros a.
+  unfold count_agents, count_agents_at_positions, grid_from_list.
+  unfold all_positions_grid.
+  rewrite grid_3x3.
+  simpl.
+  unfold place_agents_aux, get_cell, set_cell, pos_eqb, empty_grid.
+  simpl.
+  reflexivity.
+Qed.
+
+Example ex_stable_wellformed_preservation :
+  forall tau g,
+    wellformed_grid g ->
+    stable tau g ->
+    wellformed_grid (step tau g).
+Proof.
+  intros tau g Hwf Hstable.
+  rewrite step_stable_fixed_point by assumption.
+  assumption.
+Qed.
+
+Example ex_agent_count_through_iterations :
+  forall tau g n,
+    count_agents (Nat.iter n (step tau) g) = count_agents g.
+Proof.
+  intros tau g n.
+  apply step_n_preserves_agent_count.
+Qed.
+
+End Examples.
 
 End SchellingModel.
 
