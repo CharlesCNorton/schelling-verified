@@ -1001,13 +1001,29 @@ Lemma lp_distance_symmetric :
   forall metric p q,
     lp_distance metric p q = lp_distance metric q p.
 Proof.
-Admitted.
+  intros metric [i j] [i' j']; unfold lp_distance; simpl.
+  destruct metric.
+  - f_equal; apply Z_abs_symmetric.
+  - assert (Hdi : Z.abs (Z.of_nat i - Z.of_nat i') = Z.abs (Z.of_nat i' - Z.of_nat i)).
+    { apply Z_abs_symmetric. }
+    assert (Hdj : Z.abs (Z.of_nat j - Z.of_nat j') = Z.abs (Z.of_nat j' - Z.of_nat j)).
+    { apply Z_abs_symmetric. }
+    rewrite Hdi, Hdj; reflexivity.
+  - f_equal; apply Z_abs_symmetric.
+Qed.
 
 Lemma lp_neighbor_irreflexive :
   forall metric radius p,
     lp_neighbor metric radius p p = false.
 Proof.
-Admitted.
+  intros metric radius p.
+  unfold lp_neighbor.
+  assert (Hdist : lp_distance metric p p = 0%Z).
+  { apply lp_distance_zero_iff_equal; reflexivity. }
+  rewrite Hdist.
+  simpl.
+  destruct (Z.of_nat radius); reflexivity.
+Qed.
 
 Lemma lp_neighbor_symmetric :
   forall metric radius p q,
@@ -1166,7 +1182,12 @@ Lemma general_neighbors_extensional :
     (forall q, pred1 p q = pred2 p q) ->
     general_neighbors pred1 p = general_neighbors pred2 p.
 Proof.
-Admitted.
+  intros pred1 pred2 p Heq.
+  unfold general_neighbors.
+  apply filter_ext_in.
+  intros q Hin.
+  apply Heq.
+Qed.
 
 (** Predicate refinement: if pred1 implies pred2, neighborhoods shrink *)
 
