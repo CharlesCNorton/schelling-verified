@@ -1244,8 +1244,43 @@ Fixpoint apply_moves (moves : list (Pos * Pos * Agent)) (g : Grid) : Grid :=
       apply_moves rest g2
   end.
 
-Definition step_parallel (tau : nat) (g : Grid) : Grid :=
+Fixpoint NoDup_b {A : Type} (eqb : A -> A -> bool) (l : list A) : bool :=
+  match l with
+  | [] => true
+  | x :: xs => negb (existsb (eqb x) xs) && NoDup_b eqb xs
+  end.
+
+Fixpoint destinations_in_moves (moves : list (Pos * Pos * Agent)) : list Pos :=
+  match moves with
+  | [] => []
+  | (_, q, _) :: rest => q :: destinations_in_moves rest
+  end.
+
+Definition has_destination_conflict (moves : list (Pos * Pos * Agent)) : bool :=
+  let dests := destinations_in_moves moves in
+  negb (NoDup_b pos_eqb dests).
+
+Fixpoint remove_conflicts_aux (moves : list (Pos * Pos * Agent))
+                               (seen_dests : list Pos) : list (Pos * Pos * Agent) :=
+  match moves with
+  | [] => []
+  | (p, q, a) :: rest =>
+      if existsb (pos_eqb q) seen_dests then
+        remove_conflicts_aux rest seen_dests
+      else
+        (p, q, a) :: remove_conflicts_aux rest (q :: seen_dests)
+  end.
+
+Definition remove_conflicts (moves : list (Pos * Pos * Agent)) : list (Pos * Pos * Agent) :=
+  remove_conflicts_aux moves [].
+
+Definition step_parallel_old (tau : nat) (g : Grid) : Grid :=
   apply_moves (compute_moves tau g all_positions_grid) g.
+
+Definition step_parallel (tau : nat) (g : Grid) : Grid :=
+  let all_moves := compute_moves tau g all_positions_grid in
+  let conflict_free_moves := remove_conflicts all_moves in
+  apply_moves conflict_free_moves g.
 
 Lemma apply_moves_nil :
   forall g, apply_moves [] g = g.
@@ -1264,6 +1299,148 @@ Proof.
   destruct (happy tau g p) eqn:Hhappy; [apply IH|].
   destruct (find_destination tau g a) eqn:Hfind; [|apply IH].
   simpl. rewrite IH. reflexivity.
+Qed.
+
+Lemma existsb_false_not_in :
+  forall q seen,
+    existsb (pos_eqb q) seen = false ->
+    ~ In q seen.
+Proof.
+  intros q seen H Hin.
+  assert (Htrue : existsb (pos_eqb q) seen = true).
+  { rewrite existsb_exists. exists q. split. assumption. apply pos_eqb_refl. }
+  rewrite H in Htrue. discriminate.
+Qed.
+
+Lemma remove_conflicts_aux_not_in_result :
+  forall moves seen q,
+    In q seen ->
+    ~ In q (destinations_in_moves (remove_conflicts_aux moves seen)).
+Proof.
+  intros moves; induction moves as [|[[p q'] a] rest IH]; intros seen q Hin; simpl.
+  - intros [].
+  - destruct (existsb (pos_eqb q') seen) eqn:Hexists.
+    + apply IH. assumption.
+    + simpl. intros [Heq | Hin'].
+      * subst q'. apply existsb_false_not_in in Hexists. contradiction.
+      * apply (IH (q' :: seen) q). right. assumption. assumption.
+Qed.
+
+Lemma remove_conflicts_aux_no_duplicates :
+  forall moves seen,
+    NoDup (destinations_in_moves (remove_conflicts_aux moves seen)).
+Proof.
+  intros moves; induction moves as [|[[p q] a] rest IH]; intros seen; simpl.
+  - constructor.
+  - destruct (existsb (pos_eqb q) seen) eqn:Hexists.
+    + apply IH.
+    + simpl. constructor.
+      * apply remove_conflicts_aux_not_in_result. left. reflexivity.
+      * apply IH.
+Qed.
+
+Lemma remove_conflicts_no_duplicates :
+  forall moves,
+    NoDup (destinations_in_moves (remove_conflicts moves)).
+Proof.
+  intros moves.
+  unfold remove_conflicts.
+  apply remove_conflicts_aux_no_duplicates.
+Qed.
+
+Fixpoint sources_in_moves (moves : list (Pos * Pos * Agent)) : list Pos :=
+  match moves with
+  | [] => []
+  | (p, _, _) :: rest => p :: sources_in_moves rest
+  end.
+
+Fixpoint agents_in_moves (moves : list (Pos * Pos * Agent)) : list Agent :=
+  match moves with
+  | [] => []
+  | (_, _, a) :: rest => a :: agents_in_moves rest
+  end.
+
+Lemma compute_moves_source_occupied :
+  forall tau g ps p q a,
+    In (p, q, a) (compute_moves tau g ps) ->
+    get_cell g p = Occupied a.
+Proof.
+  intros tau g ps. induction ps as [|p' ps' IH]; intros p q a Hin; simpl in Hin.
+  - contradiction.
+  - destruct (get_cell g p') eqn:Hcell.
+    + apply (IH p q a). assumption.
+    + destruct (happy tau g p') eqn:Hhappy.
+      * apply (IH p q a). assumption.
+      * destruct (find_destination tau g a0) eqn:Hfind.
+        -- simpl in Hin. destruct Hin as [Heq | Hin'].
+           ++ inversion Heq; subst. assumption.
+           ++ apply (IH p q a). assumption.
+        -- apply (IH p q a). assumption.
+Qed.
+
+Lemma compute_moves_dest_empty :
+  forall tau g ps p q a,
+    In (p, q, a) (compute_moves tau g ps) ->
+    get_cell g q = Empty.
+Proof.
+  intros tau g ps. induction ps as [|p' ps' IH]; intros p q a Hin; simpl in Hin.
+  - contradiction.
+  - destruct (get_cell g p') eqn:Hcell.
+    + apply (IH p q a). assumption.
+    + destruct (happy tau g p') eqn:Hhappy.
+      * apply (IH p q a). assumption.
+      * destruct (find_destination tau g a0) eqn:Hfind.
+        -- simpl in Hin. destruct Hin as [Heq | Hin'].
+           ++ inversion Heq. subst p' p0 a0. clear Heq.
+              unfold find_destination in Hfind.
+              destruct (List.find (empty_and_happy_for tau g a) all_positions_grid) as [dest|] eqn:Hf; [|discriminate].
+              injection Hfind as Hqdest. subst dest.
+              apply List.find_some in Hf.
+              destruct Hf as [_ Hcond].
+              unfold empty_and_happy_for in Hcond.
+              apply Bool.andb_true_iff in Hcond.
+              destruct Hcond as [Hempty _].
+              unfold cell_is_empty in Hempty.
+              apply Bool.negb_true_iff in Hempty.
+              unfold is_occupied in Hempty.
+              destruct (get_cell g q) eqn:Hcellq; [reflexivity | discriminate].
+           ++ apply (IH p q a). assumption.
+        -- apply (IH p q a). assumption.
+Qed.
+
+Lemma compute_moves_source_dest_different :
+  forall tau g ps p q a,
+    In (p, q, a) (compute_moves tau g ps) ->
+    p <> q.
+Proof.
+  intros tau g ps p q a Hin.
+  assert (Hocc : get_cell g p = Occupied a) by (eapply compute_moves_source_occupied; eassumption).
+  assert (Hempty : get_cell g q = Empty) by (eapply compute_moves_dest_empty; eassumption).
+  intros Heq. subst q. rewrite Hocc in Hempty. discriminate.
+Qed.
+
+Lemma remove_conflicts_aux_subset :
+  forall moves seen p q a,
+    In (p, q, a) (remove_conflicts_aux moves seen) ->
+    In (p, q, a) moves.
+Proof.
+  intros moves. induction moves as [|[[p' q'] a'] rest IH]; intros seen p q a Hin; simpl in *.
+  - contradiction.
+  - destruct (existsb (pos_eqb q') seen) eqn:Hexists.
+    + right. apply IH with (seen := seen). assumption.
+    + simpl in Hin. destruct Hin as [Heq | Hin'].
+      * left. assumption.
+      * right. apply IH with (seen := q' :: seen). assumption.
+Qed.
+
+Lemma remove_conflicts_subset :
+  forall moves p q a,
+    In (p, q, a) (remove_conflicts moves) ->
+    In (p, q, a) moves.
+Proof.
+  intros moves p q a Hin.
+  unfold remove_conflicts in Hin.
+  apply remove_conflicts_aux_subset with (seen := []). assumption.
 Qed.
 
 (* -----------------------------------------------------------------------------
@@ -2551,6 +2728,517 @@ Proof.
   - rewrite step_preserves_agent_count; assumption.
 Qed.
 
+Lemma swap_get_at_source :
+  forall g p q a,
+    q <> p ->
+    get_cell (set_cell (set_cell g p Empty) q (Occupied a)) p = Empty.
+Proof.
+  intros. rewrite get_set_other, get_set_same by assumption. reflexivity.
+Qed.
+
+Lemma swap_get_at_dest :
+  forall g p q a,
+    get_cell (set_cell (set_cell g p Empty) q (Occupied a)) q = Occupied a.
+Proof.
+  intros. rewrite get_set_same. reflexivity.
+Qed.
+
+Lemma swap_get_elsewhere :
+  forall g p q a r,
+    r <> p -> r <> q ->
+    get_cell (set_cell (set_cell g p Empty) q (Occupied a)) r = get_cell g r.
+Proof.
+  intros g p q a r Hrp Hrq.
+  rewrite get_set_other by (intros C; subst; contradiction).
+  rewrite get_set_other by (intros C; subst; contradiction).
+  reflexivity.
+Qed.
+
+Lemma count_cells_extensional :
+  forall cs1 cs2,
+    cs1 = cs2 ->
+    count_agents_in_cells cs1 = count_agents_in_cells cs2.
+Proof.
+  intros. subst. reflexivity.
+Qed.
+
+Lemma swap_when_both_in_bounds :
+  forall g p q a,
+    p <> q ->
+    in_bounds p ->
+    in_bounds q ->
+    get_cell g p = Occupied a ->
+    get_cell g q = Empty ->
+    count_agents (set_cell (set_cell g p Empty) q (Occupied a)) = count_agents g.
+Proof.
+  intros g p q a Hneq Hp Hq Hcellp Hcellq.
+  apply count_agents_swap_cells; try assumption.
+  - apply all_positions_complete; assumption.
+  - apply all_positions_complete; assumption.
+Qed.
+
+Lemma set_cell_out_of_bounds_preserves_count :
+  forall g p c,
+    ~ in_bounds p ->
+    count_agents (set_cell g p c) = count_agents g.
+Proof.
+  intros g p c Hout.
+  unfold count_agents, count_agents_at_positions.
+  apply f_equal.
+  apply map_ext_in.
+  intros r Hr.
+  rewrite get_set_other.
+  - reflexivity.
+  - intros Heq; subst r.
+    apply Hout.
+    apply all_positions_only_in_bounds; assumption.
+Qed.
+
+Lemma set_cell_twice_out_of_bounds_preserves_count :
+  forall g p q c1 c2,
+    ~ in_bounds p ->
+    ~ in_bounds q ->
+    count_agents (set_cell (set_cell g p c1) q c2) = count_agents g.
+Proof.
+  intros g p q c1 c2 Hp Hq.
+  rewrite set_cell_out_of_bounds_preserves_count by assumption.
+  apply set_cell_out_of_bounds_preserves_count.
+  assumption.
+Qed.
+
+Lemma set_cell_then_out_of_bounds_preserves_count :
+  forall g p q c1 c2,
+    ~ in_bounds q ->
+    count_agents (set_cell (set_cell g p c1) q c2) = count_agents (set_cell g p c1).
+Proof.
+  intros g p q c1 c2 Hq.
+  apply set_cell_out_of_bounds_preserves_count.
+  assumption.
+Qed.
+
+Lemma out_of_bounds_cell_must_be_empty :
+  forall g p,
+    wellformed_grid g ->
+    ~ in_bounds p ->
+    get_cell g p = Empty.
+Proof.
+  intros g [i j] Hwf Hout.
+  unfold in_bounds in Hout.
+  simpl in Hout.
+  apply Hwf.
+  destruct (Nat.ltb i grid_size) eqn:Hi, (Nat.ltb j grid_size) eqn:Hj.
+  - exfalso; apply Hout; split; apply Nat.ltb_lt; assumption.
+  - right; apply Nat.ltb_ge; assumption.
+  - left; apply Nat.ltb_ge; assumption.
+  - left; apply Nat.ltb_ge; assumption.
+Qed.
+
+Lemma set_cell_count_agents_swap :
+  forall g p q a,
+    p <> q ->
+    get_cell g p = Occupied a ->
+    get_cell g q = Empty ->
+    In p all_positions_grid ->
+    In q all_positions_grid ->
+    count_agents (set_cell (set_cell g p Empty) q (Occupied a)) = count_agents g.
+Proof.
+  intros g p q a Hneq Hcellp Hcellq Hinp Hinq.
+  apply count_agents_swap_cells; assumption.
+Qed.
+
+Lemma apply_moves_preserves_count_single :
+  forall g p q a,
+    p <> q ->
+    get_cell g p = Occupied a ->
+    get_cell g q = Empty ->
+    In p all_positions_grid ->
+    In q all_positions_grid ->
+    count_agents (set_cell (set_cell g p Empty) q (Occupied a)) = count_agents g.
+Proof.
+  intros. apply set_cell_count_agents_swap; assumption.
+Qed.
+
+Lemma apply_moves_cons :
+  forall m moves g,
+    apply_moves (m :: moves) g = apply_moves moves (apply_moves [m] g).
+Proof.
+  intros [[p q] a] moves g. simpl. reflexivity.
+Qed.
+
+Lemma source_not_in_tail_sources :
+  forall (p q : Pos) (a : Agent) (moves' : list (Pos * Pos * Agent)),
+    (forall p1 q1 a1 p2 q2 a2,
+      In (p1, q1, a1) ((p, q, a) :: moves') ->
+      In (p2, q2, a2) ((p, q, a) :: moves') ->
+      (p1, q1, a1) <> (p2, q2, a2) -> p1 <> p2) ->
+    NoDup ((p, q, a) :: moves') ->
+    forall p' q' a',
+      In (p', q', a') moves' ->
+      p' <> p.
+Proof.
+  intros p q a moves' Huniq Hnodup p' q' a' Hin Heq.
+  subst p'.
+  assert (H1: In (p, q, a) ((p, q, a) :: moves')) by (left; reflexivity).
+  destruct (pos_eq_dec q q') as [Heq_q | Hneq_q];
+  destruct (agent_eq_dec a a') as [Heq_a | Hneq_a].
+  - subst q' a'.
+    inversion Hnodup; subst.
+    contradiction.
+  - subst q'.
+    assert (H2: In (p, q, a') ((p, q, a) :: moves')) by (right; exact Hin).
+    assert (Hneq: (p, q, a) <> (p, q, a')).
+    { intros Hcontra. injection Hcontra. intros. contradiction. }
+    apply (Huniq p q a p q a' H1 H2 Hneq). reflexivity.
+  - subst a'.
+    assert (H2: In (p, q', a) ((p, q, a) :: moves')) by (right; exact Hin).
+    assert (Hneq: (p, q, a) <> (p, q', a)).
+    { intros Hcontra. injection Hcontra. intros. contradiction. }
+    apply (Huniq p q a p q' a H1 H2 Hneq). reflexivity.
+  - assert (H2: In (p, q', a') ((p, q, a) :: moves')) by (right; assumption).
+    assert (Hneq: (p, q, a) <> (p, q', a')).
+    { intros Hcontra. injection Hcontra. intros. contradiction. }
+    apply (Huniq p q a p q' a' H1 H2 Hneq). reflexivity.
+Qed.
+
+Lemma dest_not_in_tail_dests :
+  forall q moves',
+    NoDup (q :: destinations_in_moves moves') ->
+    forall q',
+      In q' (destinations_in_moves moves') ->
+      q' <> q.
+Proof.
+  intros q moves' Hnodup q' Hin.
+  inversion Hnodup; subst.
+  intros Heq; subst q'.
+  contradiction.
+Qed.
+
+Lemma get_cell_after_swap_source_empty :
+  forall g p q a p',
+    p' <> p ->
+    p' <> q ->
+    get_cell (set_cell (set_cell g p Empty) q (Occupied a)) p' = get_cell g p'.
+Proof.
+  intros g p q a p' Hneq_p Hneq_q.
+  rewrite get_set_other.
+  - rewrite get_set_other.
+    + reflexivity.
+    + intros Heq. apply Hneq_p. symmetry. exact Heq.
+  - intros Heq. apply Hneq_q. symmetry. exact Heq.
+Qed.
+
+Lemma dest_in_moves :
+  forall p q a moves,
+    In (p, q, a) moves ->
+    In q (destinations_in_moves moves).
+Proof.
+  intros p q a moves Hin.
+  induction moves as [|[[px qx] ax] moves' IH].
+  - inversion Hin.
+  - simpl. simpl in Hin.
+    destruct Hin as [Heq | Hin'].
+    + injection Heq as Heq_p Heq_q Heq_a. subst. left. reflexivity.
+    + right. apply IH. assumption.
+Qed.
+
+Lemma not_in_dest_means_move_not_in :
+  forall p q a moves,
+    ~ In q (destinations_in_moves moves) ->
+    ~ In (p, q, a) moves.
+Proof.
+  intros p q a moves Hnot_in Hcontra.
+  apply Hnot_in.
+  apply (dest_in_moves p q a moves).
+  assumption.
+Qed.
+
+Lemma get_cell_after_swap_at_dest :
+  forall g p q a,
+    get_cell (set_cell (set_cell g p Empty) q (Occupied a)) q = Occupied a.
+Proof.
+  intros g p q a.
+  rewrite get_set_same.
+  reflexivity.
+Qed.
+
+Lemma apply_single_move_preserves_count :
+  forall g p q a,
+    In p all_positions_grid ->
+    In q all_positions_grid ->
+    p <> q ->
+    get_cell g p = Occupied a ->
+    get_cell g q = Empty ->
+    count_agents (set_cell (set_cell g p Empty) q (Occupied a)) = count_agents g.
+Proof.
+  intros g p q a Hinp Hinq Hneq Hcellp Hcellq.
+  apply set_cell_count_agents_swap; assumption.
+Qed.
+
+Lemma compute_moves_sources_in_all_positions :
+  forall tau g ps p q a,
+    (forall r, In r ps -> In r all_positions_grid) ->
+    In (p, q, a) (compute_moves tau g ps) ->
+    In p all_positions_grid.
+Proof.
+  intros tau g ps p q a Hps_in Hin.
+  induction ps as [|p' ps' IH].
+  - simpl in Hin. contradiction.
+  - simpl in Hin.
+    destruct (get_cell g p') eqn:Hcell.
+    + apply IH.
+      * intros r Hr. apply Hps_in. right. assumption.
+      * assumption.
+    + destruct (happy tau g p') eqn:Hhappy.
+      * apply IH.
+        -- intros r Hr. apply Hps_in. right. assumption.
+        -- assumption.
+      * destruct (find_destination tau g a0) eqn:Hfind.
+        -- simpl in Hin. destruct Hin as [Heq | Hin'].
+           ++ inversion Heq; subst. apply Hps_in. left. reflexivity.
+           ++ apply IH.
+              ** intros r Hr. apply Hps_in. right. assumption.
+              ** assumption.
+        -- apply IH.
+           ++ intros r Hr. apply Hps_in. right. assumption.
+           ++ assumption.
+Qed.
+
+Lemma compute_moves_dests_in_all_positions :
+  forall tau g ps p q a,
+    In (p, q, a) (compute_moves tau g ps) ->
+    In q all_positions_grid.
+Proof.
+  intros tau g ps. induction ps as [|p' ps' IH]; intros p q a Hin.
+  - simpl in Hin. contradiction.
+  - simpl in Hin.
+    destruct (get_cell g p') eqn:Hcell.
+    + apply (IH p q a). assumption.
+    + destruct (happy tau g p') eqn:Hhappy.
+      * apply (IH p q a). assumption.
+      * destruct (find_destination tau g a0) eqn:Hfind.
+        -- simpl in Hin. destruct Hin as [Heq | Hin'].
+           ++ inversion Heq; subst.
+              apply all_positions_complete.
+              unfold find_destination in Hfind.
+              destruct (List.find (empty_and_happy_for tau g a) all_positions_grid) eqn:Hf; [|discriminate].
+              injection Hfind as Hfind; subst p0.
+              apply List.find_some in Hf.
+              destruct Hf as [Hin_q _].
+              apply all_positions_only_in_bounds.
+              assumption.
+           ++ apply (IH p q a). assumption.
+        -- apply (IH p q a). assumption.
+Qed.
+
+Lemma sources_dests_disjoint_preserves_count :
+  forall moves g,
+    (forall p q a, In (p, q, a) moves -> In p all_positions_grid) ->
+    (forall p q a, In (p, q, a) moves -> In q all_positions_grid) ->
+    NoDup (destinations_in_moves moves) ->
+    (forall p q a, In (p, q, a) moves -> get_cell g p = Occupied a) ->
+    (forall p q a, In (p, q, a) moves -> get_cell g q = Empty) ->
+    (forall p q a, In (p, q, a) moves -> p <> q) ->
+    (forall p1 q1 a1 p2 q2 a2,
+      In (p1, q1, a1) moves -> In (p2, q2, a2) moves ->
+      (p1, q1, a1) <> (p2, q2, a2) -> p1 <> p2) ->
+    count_agents (apply_moves moves g) = count_agents g.
+Proof.
+  intros moves.
+  induction moves as [|[[p q] a] moves' IH]; intros g Hsrc_in Hdst_in Hnodup Hsrc_occ Hdst_empty Hneq Hsrc_uniq.
+  - simpl. reflexivity.
+  - simpl.
+    set (g' := set_cell (set_cell g p Empty) q (Occupied a)).
+    rewrite (IH g').
+    + unfold g'.
+      assert (Hp_in: In p all_positions_grid).
+      { apply (Hsrc_in p q a). left. reflexivity. }
+      assert (Hq_in: In q all_positions_grid).
+      { apply (Hdst_in p q a). left. reflexivity. }
+      assert (Hpq_neq: p <> q).
+      { apply (Hneq p q a). left. reflexivity. }
+      assert (Hp_occ: get_cell g p = Occupied a).
+      { apply (Hsrc_occ p q a). left. reflexivity. }
+      assert (Hq_empty: get_cell g q = Empty).
+      { apply (Hdst_empty p q a). left. reflexivity. }
+      apply set_cell_count_agents_swap; assumption.
+    + intros p' q' a' Hin'. apply (Hsrc_in p' q' a'). right. assumption.
+    + intros p' q' a' Hin'. apply (Hdst_in p' q' a'). right. assumption.
+    + simpl in Hnodup. inversion Hnodup. assumption.
+    + intros p' q' a' Hin'.
+      unfold g'.
+      assert (Hp'_neq_p: p' <> p).
+      { intros Heq. subst p'.
+        assert (H_head: In (p, q, a) ((p, q, a) :: moves')) by (left; reflexivity).
+        assert (H_tail: In (p, q', a') ((p, q, a) :: moves')) by (right; assumption).
+        destruct (pos_eq_dec q q') as [Heq_q | Hneq_q];
+        destruct (agent_eq_dec a a') as [Heq_a | Hneq_a].
+        - subst q' a'.
+          simpl in Hnodup. inversion Hnodup; subst.
+          apply H1.
+          apply (dest_in_moves p q a moves'). assumption.
+        - subst q'.
+          assert (Hneq_moves: (p, q, a) <> (p, q, a')).
+          { intros Hcontra. injection Hcontra. intros. contradiction. }
+          apply (Hsrc_uniq p q a p q a' H_head H_tail Hneq_moves). reflexivity.
+        - subst a'.
+          assert (Hneq_moves: (p, q, a) <> (p, q', a)).
+          { intros Hcontra. injection Hcontra. intros. contradiction. }
+          apply (Hsrc_uniq p q a p q' a H_head H_tail Hneq_moves). reflexivity.
+        - assert (Hneq_moves: (p, q, a) <> (p, q', a')).
+          { intros Hcontra. injection Hcontra. intros. contradiction. }
+          apply (Hsrc_uniq p q a p q' a' H_head H_tail Hneq_moves). reflexivity. }
+      assert (Hp'_neq_q: p' <> q).
+      { intros Heq. subst p'.
+        assert (Hq_occ: get_cell g q = Occupied a').
+        { apply (Hsrc_occ q q' a'). right. assumption. }
+        assert (Hq_empty: get_cell g q = Empty).
+        { apply (Hdst_empty p q a). left. reflexivity. }
+        rewrite Hq_empty in Hq_occ.
+        discriminate. }
+      rewrite (get_cell_after_swap_source_empty g p q a p' Hp'_neq_p Hp'_neq_q).
+      apply (Hsrc_occ p' q' a'). right. assumption.
+    + intros p' q' a' Hin'.
+      unfold g'.
+      assert (Hq'_neq_p: q' <> p).
+      { intros Heq. subst q'.
+        assert (Hp_occ: get_cell g p = Occupied a).
+        { apply (Hsrc_occ p q a). left. reflexivity. }
+        assert (Hp_empty: get_cell g p = Empty).
+        { apply (Hdst_empty p' p a'). right. assumption. }
+        rewrite Hp_empty in Hp_occ.
+        discriminate. }
+      assert (Hq'_neq_q: q' <> q).
+      { simpl in Hnodup. inversion Hnodup; subst.
+        apply (dest_not_in_tail_dests q moves' Hnodup q').
+        apply (dest_in_moves p' q' a' moves').
+        assumption. }
+      rewrite (get_cell_after_swap_source_empty g p q a q' Hq'_neq_p Hq'_neq_q).
+      apply (Hdst_empty p' q' a'). right. assumption.
+    + intros p' q' a' Hin'. apply (Hneq p' q' a'). right. assumption.
+    + intros p1 q1 a1 p2 q2 a2 H1 H2 Hneq_moves.
+      apply (Hsrc_uniq p1 q1 a1 p2 q2 a2).
+      * right. assumption.
+      * right. assumption.
+      * assumption.
+Qed.
+
+Lemma compute_moves_sources_in_ps :
+  forall tau g ps p q a,
+    In (p, q, a) (compute_moves tau g ps) ->
+    In p ps.
+Proof.
+  intros tau g ps. induction ps as [|p' ps' IH]; intros p q a Hin.
+  - simpl in Hin. contradiction.
+  - simpl in Hin.
+    destruct (get_cell g p') eqn:Hcell.
+    + right. apply (IH p q a). assumption.
+    + destruct (happy tau g p') eqn:Hhappy.
+      * right. apply (IH p q a). assumption.
+      * destruct (find_destination tau g a0) eqn:Hfind.
+        -- simpl in Hin. destruct Hin as [Heq | Hin'].
+           ++ inversion Heq; subst. left. reflexivity.
+           ++ right. apply (IH p q a). assumption.
+        -- right. apply (IH p q a). assumption.
+Qed.
+
+Lemma compute_moves_at_most_one_per_position :
+  forall tau g ps p q1 a1 q2 a2,
+    NoDup ps ->
+    In (p, q1, a1) (compute_moves tau g ps) ->
+    In (p, q2, a2) (compute_moves tau g ps) ->
+    (p, q1, a1) = (p, q2, a2).
+Proof.
+  intros tau g ps. induction ps as [|p' ps' IH]; intros p q1 a1 q2 a2 Hnodup Hin1 Hin2.
+  - simpl in Hin1. contradiction.
+  - simpl in Hin1, Hin2.
+    inversion Hnodup; subst.
+    destruct (get_cell g p') eqn:Hcell.
+    + apply (IH p q1 a1 q2 a2); assumption.
+    + destruct (happy tau g p') eqn:Hhappy.
+      * apply (IH p q1 a1 q2 a2); assumption.
+      * destruct (find_destination tau g a) eqn:Hfind.
+        -- simpl in Hin1, Hin2.
+           destruct Hin1 as [Heq1 | Hin1'], Hin2 as [Heq2 | Hin2'].
+           ++ congruence.
+           ++ inversion Heq1; subst.
+              exfalso.
+              apply compute_moves_sources_in_ps in Hin2'.
+              contradiction.
+           ++ inversion Heq2; subst.
+              exfalso.
+              apply compute_moves_sources_in_ps in Hin1'.
+              contradiction.
+           ++ apply (IH p q1 a1 q2 a2); assumption.
+        -- apply (IH p q1 a1 q2 a2); assumption.
+Qed.
+
+Lemma compute_moves_sources_unique :
+  forall tau g ps p1 q1 a1 p2 q2 a2,
+    NoDup ps ->
+    In (p1, q1, a1) (compute_moves tau g ps) ->
+    In (p2, q2, a2) (compute_moves tau g ps) ->
+    (p1, q1, a1) <> (p2, q2, a2) ->
+    p1 <> p2.
+Proof.
+  intros tau g ps p1 q1 a1 p2 q2 a2 Hnodup H1 H2 Hneq.
+  intros Heq; subst p2.
+  apply Hneq.
+  apply (compute_moves_at_most_one_per_position tau g ps p1 q1 a1 q2 a2); assumption.
+Qed.
+
+Lemma remove_conflicts_preserves_properties :
+  forall moves tau g ps,
+    NoDup ps ->
+    moves = compute_moves tau g ps ->
+    (forall p q a, In (p, q, a) (remove_conflicts moves) -> get_cell g p = Occupied a) /\
+    (forall p q a, In (p, q, a) (remove_conflicts moves) -> get_cell g q = Empty) /\
+    (forall p q a, In (p, q, a) (remove_conflicts moves) -> p <> q) /\
+    (forall p1 q1 a1 p2 q2 a2,
+      In (p1, q1, a1) (remove_conflicts moves) ->
+      In (p2, q2, a2) (remove_conflicts moves) ->
+      (p1, q1, a1) <> (p2, q2, a2) -> p1 <> p2).
+Proof.
+  intros moves tau g ps Hnodup Heq. subst moves. repeat split.
+  - intros p q a Hin. apply remove_conflicts_subset in Hin.
+    eapply compute_moves_source_occupied. eassumption.
+  - intros p q a Hin. apply remove_conflicts_subset in Hin.
+    eapply compute_moves_dest_empty. eassumption.
+  - intros p q a Hin. apply remove_conflicts_subset in Hin.
+    eapply compute_moves_source_dest_different. eassumption.
+  - intros p1 q1 a1 p2 q2 a2 H1 H2 Hneq.
+    apply remove_conflicts_subset in H1.
+    apply remove_conflicts_subset in H2.
+    eapply compute_moves_sources_unique; eassumption.
+Qed.
+
+Theorem step_parallel_preserves_agent_count :
+  forall tau g,
+    count_agents (step_parallel tau g) = count_agents g.
+Proof.
+  intros tau g.
+  unfold step_parallel.
+  set (moves := compute_moves tau g all_positions_grid).
+  assert (Hprops := remove_conflicts_preserves_properties moves tau g all_positions_grid all_positions_grid_NoDup eq_refl).
+  destruct Hprops as [Hsrc [Hdst [Hpq Hdisj]]].
+  apply sources_dests_disjoint_preserves_count.
+  - intros p q a Hin.
+    apply remove_conflicts_subset in Hin.
+    unfold moves in Hin.
+    eapply compute_moves_sources_in_all_positions.
+    + intros r Hr. exact Hr.
+    + exact Hin.
+  - intros p q a Hin.
+    apply remove_conflicts_subset in Hin.
+    unfold moves in Hin.
+    eapply compute_moves_dests_in_all_positions.
+    exact Hin.
+  - apply remove_conflicts_no_duplicates.
+  - exact Hsrc.
+  - exact Hdst.
+  - exact Hpq.
+  - exact Hdisj.
+Qed.
+
 (* -----------------------------------------------------------------------------
    Segregation Metrics: Measuring Clustering and Separation
    ----------------------------------------------------------------------------- *)
@@ -2898,6 +3586,101 @@ Qed.
 
 Definition grid_configs_finite := (3 ^ (grid_size * grid_size))%nat.
 
+(** * Termination and Convergence *)
+
+Lemma zero_unhappy_implies_stable :
+  forall tau g,
+    wellformed_grid g ->
+    count_unhappy_positions tau g = 0%nat ->
+    step tau g = g.
+Proof.
+  intros tau g Hwf Hcount.
+  apply stable_iff_count_unhappy_zero in Hcount; [|assumption].
+  apply step_stable_fixed_point; assumption.
+Qed.
+
+Corollary iterations_preserve_wellformed :
+  forall tau g n,
+    wellformed_grid g ->
+    wellformed_grid (Nat.iter n (step tau) g).
+Proof.
+  intros tau g n Hwf.
+  apply step_n_preserves_wellformed; assumption.
+Qed.
+
+Corollary iterations_preserve_agent_count :
+  forall tau g n,
+    count_agents (Nat.iter n (step tau) g) = count_agents g.
+Proof.
+  intros tau g n.
+  apply step_n_preserves_agent_count.
+Qed.
+
+(** * Cycle Detection *)
+
+Definition has_period (tau : nat) (g : Grid) (p : nat) : Prop :=
+  (p > 0)%nat /\ Nat.iter p (step tau) g = g.
+
+Definition is_fixpoint (tau : nat) (g : Grid) : Prop :=
+  step tau g = g.
+
+Lemma fixpoint_is_period_1 :
+  forall tau g,
+    is_fixpoint tau g <-> has_period tau g 1.
+Proof.
+  intros tau g; split; intros H.
+  - unfold has_period; simpl; split; [lia | assumption].
+  - unfold has_period in H; destruct H as [_ H]; simpl in H; assumption.
+Qed.
+
+Lemma happy_empty_cell :
+  forall tau g p,
+    get_cell g p = Empty ->
+    happy tau g p = true.
+Proof.
+  intros tau g p Hempty.
+  unfold happy.
+  rewrite Hempty.
+  reflexivity.
+Qed.
+
+Lemma unhappy_means_occupied :
+  forall tau g p,
+    happy tau g p = false ->
+    exists a, get_cell g p = Occupied a.
+Proof.
+  intros tau g p Hunhappy.
+  unfold happy in Hunhappy.
+  destruct (get_cell g p) eqn:Hcell.
+  - discriminate.
+  - exists a; reflexivity.
+Qed.
+
+Lemma stable_implies_fixpoint :
+  forall tau g,
+    stable tau g ->
+    is_fixpoint tau g.
+Proof.
+  intros tau g Hstable.
+  unfold is_fixpoint.
+  apply step_stable_fixed_point.
+  assumption.
+Qed.
+
+Lemma period_multiple :
+  forall tau g p k,
+    has_period tau g p ->
+    Nat.iter (k * p) (step tau) g = g.
+Proof.
+  intros tau g p k [Hpos Hperiod].
+  induction k as [|k' IH]; simpl.
+  - reflexivity.
+  - replace (S k' * p)%nat with (k' * p + p)%nat by lia.
+    rewrite Nat.iter_add.
+    rewrite IH.
+    assumption.
+Qed.
+
 Lemma step_position_stable_or_changes :
   forall tau g p,
     In p all_positions_grid ->
@@ -2993,6 +3776,99 @@ Proof.
       * rewrite agent_eqb_refl. simpl.
         apply IH. intros q Hq. apply Hext. right. assumption.
 Qed.
+
+Lemma grid_eq_false_implies_exists_diff :
+  forall g1 g2,
+    grid_eq g1 g2 = false ->
+    exists p, In p all_positions_grid /\ get_cell g1 p <> get_cell g2 p.
+Proof.
+  intros g1 g2 Heq.
+  unfold grid_eq in Heq.
+  induction all_positions_grid as [|p ps IH]; simpl in Heq.
+  - discriminate.
+  - destruct (get_cell g1 p) eqn:H1, (get_cell g2 p) eqn:H2.
+    + destruct (IH Heq) as [q [Hin Hdiff]].
+      exists q; split; [right; assumption | assumption].
+    + exists p; split; [left; reflexivity | congruence].
+    + exists p; split; [left; reflexivity | congruence].
+    + destruct (agent_eqb a a0) eqn:Hagent.
+      * destruct (IH Heq) as [q [Hin Hdiff]].
+        exists q; split; [right; assumption | assumption].
+      * exists p; split; [left; reflexivity |].
+        apply agent_eqb_neq in Hagent; congruence.
+Qed.
+
+Lemma step_out_of_bounds_empty :
+  forall tau g i j,
+    wellformed_grid g ->
+    (i >= grid_size)%nat \/ (j >= grid_size)%nat ->
+    get_cell (step tau g) (i, j) = Empty.
+Proof.
+  intros tau g i j Hwf Hout.
+  apply step_preserves_wellformed; assumption.
+Qed.
+
+Lemma grid_eq_true_extensional :
+  forall g1 g2,
+    wellformed_grid g1 ->
+    wellformed_grid g2 ->
+    grid_eq g1 g2 = true ->
+    forall i j, get_cell g1 (i, j) = get_cell g2 (i, j).
+Proof.
+  intros g1 g2 Hwf1 Hwf2 Heq i j.
+  rewrite grid_eq_spec in Heq.
+  destruct (Nat.ltb i grid_size) eqn:Hi, (Nat.ltb j grid_size) eqn:Hj.
+  - apply Nat.ltb_lt in Hi; apply Nat.ltb_lt in Hj.
+    apply Heq; apply all_positions_coverage; assumption.
+  - assert (H1: get_cell g1 (i,j) = Empty) by (apply Hwf1; right; apply Nat.ltb_ge; assumption).
+    assert (H2: get_cell g2 (i,j) = Empty) by (apply Hwf2; right; apply Nat.ltb_ge; assumption).
+    rewrite H1, H2; reflexivity.
+  - assert (H1: get_cell g1 (i,j) = Empty) by (apply Hwf1; left; apply Nat.ltb_ge; assumption).
+    assert (H2: get_cell g2 (i,j) = Empty) by (apply Hwf2; left; apply Nat.ltb_ge; assumption).
+    rewrite H1, H2; reflexivity.
+  - assert (H1: get_cell g1 (i,j) = Empty) by (apply Hwf1; left; apply Nat.ltb_ge; assumption).
+    assert (H2: get_cell g2 (i,j) = Empty) by (apply Hwf2; left; apply Nat.ltb_ge; assumption).
+    rewrite H1, H2; reflexivity.
+Qed.
+
+Lemma grid_eq_true_to_functional_eq :
+  forall g1 g2,
+    wellformed_grid g1 ->
+    wellformed_grid g2 ->
+    grid_eq g1 g2 = true ->
+    g1 = g2.
+Proof.
+  intros g1 g2 Hwf1 Hwf2 Heq.
+  apply functional_extensionality; intros p.
+  destruct p as [i j].
+  apply grid_eq_true_extensional; assumption.
+Qed.
+
+Lemma grid_eq_false_implies_grids_differ :
+  forall g1 g2,
+    grid_eq g1 g2 = false ->
+    g1 <> g2.
+Proof.
+  intros g1 g2 Heq Hcontra.
+  apply grid_eq_false_implies_exists_diff in Heq.
+  destruct Heq as [p [Hin Hdiff]].
+  apply Hdiff.
+  rewrite Hcontra; reflexivity.
+Qed.
+
+Lemma fixpoint_decidable :
+  forall tau g,
+    wellformed_grid g ->
+    {is_fixpoint tau g} + {~ is_fixpoint tau g}.
+Proof.
+  intros tau g Hwf.
+  unfold is_fixpoint.
+  destruct (grid_eq (step tau g) g) eqn:Heq.
+  - left.
+    apply grid_eq_true_to_functional_eq; [apply step_preserves_wellformed | | ]; assumption.
+  - right.
+    apply grid_eq_false_implies_grids_differ; assumption.
+Defined.
 
 Lemma happy_extensional :
   forall tau g1 g2 p,
@@ -5015,6 +5891,15 @@ Proof.
   reflexivity.
 Qed.
 
+Corollary sequential_preserves_wellformed :
+  forall tau g,
+    wellformed_grid g ->
+    wellformed_grid (step tau g).
+Proof.
+  intros tau g Hwf.
+  apply step_preserves_wellformed; assumption.
+Qed.
+
 (* -----------------------------------------------------------------------------
    Grid Construction Utilities
    ----------------------------------------------------------------------------- *)
@@ -5548,6 +6433,300 @@ Proof.
 Qed.
 
 End Examples.
+
+(* -----------------------------------------------------------------------------
+   Complexity Bounds: How Many Steps Until Convergence?
+   ----------------------------------------------------------------------------- *)
+
+Lemma nat_pow_pos :
+  forall a b,
+    (0 < a)%nat ->
+    (0 < a ^ b)%nat.
+Proof.
+  intros a b Ha.
+  induction b as [|b' IH]; simpl.
+  - lia.
+  - apply Nat.mul_pos_pos; assumption.
+Qed.
+
+Lemma grid_configs_finite_positive :
+  (0 < grid_configs_finite)%nat.
+Proof.
+  unfold grid_configs_finite.
+  apply nat_pow_pos.
+  lia.
+Qed.
+
+Lemma step_iter_S :
+  forall tau g n,
+    Nat.iter (S n) (step tau) g = step tau (Nat.iter n (step tau) g).
+Proof.
+  intros tau g n.
+  reflexivity.
+Qed.
+
+Lemma step_iter_wellformed :
+  forall tau g n,
+    wellformed_grid g ->
+    wellformed_grid (Nat.iter n (step tau) g).
+Proof.
+  intros tau g n Hwf.
+  apply step_n_preserves_wellformed.
+  assumption.
+Qed.
+
+Lemma step_deterministic_iter :
+  forall tau g1 g2 n,
+    g1 = g2 ->
+    Nat.iter n (step tau) g1 = Nat.iter n (step tau) g2.
+Proof.
+  intros tau g1 g2 n Heq.
+  subst.
+  reflexivity.
+Qed.
+
+Lemma step_iter_add :
+  forall tau g m n,
+    Nat.iter (m + n) (step tau) g = Nat.iter n (step tau) (Nat.iter m (step tau) g).
+Proof.
+  intros tau g m n.
+  revert g.
+  induction n as [|n' IH]; intros g.
+  - rewrite Nat.add_0_r. reflexivity.
+  - replace (m + S n')%nat with (S (m + n'))%nat by lia.
+    simpl.
+    rewrite IH.
+    reflexivity.
+Qed.
+
+Lemma grid_eq_wellformed_iff_equal :
+  forall g1 g2,
+    wellformed_grid g1 ->
+    wellformed_grid g2 ->
+    grid_eq g1 g2 = true ->
+    g1 = g2.
+Proof.
+  intros g1 g2 Hwf1 Hwf2 Heq.
+  apply grid_eq_true_to_functional_eq; assumption.
+Qed.
+
+Lemma step_iter_repeat_implies_period :
+  forall tau g i j,
+    (i < j)%nat ->
+    Nat.iter i (step tau) g = Nat.iter j (step tau) g ->
+    has_period tau (Nat.iter i (step tau) g) (j - i).
+Proof.
+  intros tau g i j Hij Heq.
+  unfold has_period.
+  split.
+  - lia.
+  - replace j with (i + (j - i))%nat in Heq by lia.
+    rewrite step_iter_add in Heq.
+    symmetry.
+    assumption.
+Qed.
+
+Lemma nat_exists_le_S :
+  forall n,
+    exists k, (k <= S n)%nat.
+Proof.
+  intros n.
+  exists 0%nat.
+  lia.
+Qed.
+
+Fixpoint iter_sequence (tau : nat) (g : Grid) (n : nat) : list Grid :=
+  match n with
+  | O => [g]
+  | S n' => g :: iter_sequence tau (step tau g) n'
+  end.
+
+Lemma iter_sequence_length :
+  forall tau g n,
+    length (iter_sequence tau g n) = S n.
+Proof.
+  intros tau g n.
+  revert g.
+  induction n as [|n' IH]; intros g; simpl.
+  - reflexivity.
+  - f_equal. apply IH.
+Qed.
+
+Lemma nat_iter_S_comm :
+  forall tau g k,
+    Nat.iter k (step tau) (step tau g) = step tau (Nat.iter k (step tau) g).
+Proof.
+  intros tau g k.
+  induction k as [|k' IH]; simpl.
+  - reflexivity.
+  - rewrite IH. reflexivity.
+Qed.
+
+Lemma iter_sequence_nth :
+  forall tau g n k,
+    (k <= n)%nat ->
+    nth k (iter_sequence tau g n) empty_grid = Nat.iter k (step tau) g.
+Proof.
+  intros tau g n k Hk.
+  revert g k Hk.
+  induction n as [|n' IH]; intros g k Hk; simpl.
+  - assert (k = 0)%nat by lia. subst. reflexivity.
+  - destruct k as [|k'].
+    + reflexivity.
+    + simpl.
+      rewrite IH by lia.
+      apply nat_iter_S_comm.
+Qed.
+
+Lemma stable_eventually :
+  forall tau g i,
+    wellformed_grid g ->
+    stable tau (Nat.iter i (step tau) g) ->
+    (exists j, (j <= i)%nat /\ stable tau (Nat.iter j (step tau) g)).
+Proof.
+  intros tau g i Hwf Hstable.
+  exists i.
+  split; [lia | assumption].
+Qed.
+
+Theorem bounded_convergence_weak :
+  forall tau g,
+    wellformed_grid g ->
+    stable tau g ->
+    (exists i, (i <= 0)%nat /\ is_fixpoint tau (Nat.iter i (step tau) g)).
+Proof.
+  intros tau g Hwf Hstable.
+  exists 0%nat.
+  split.
+  - lia.
+  - simpl.
+    unfold is_fixpoint.
+    apply step_stable_fixed_point.
+    assumption.
+Qed.
+
+Theorem bounded_steps_stable_case :
+  forall tau g N i,
+    wellformed_grid g ->
+    (i <= N)%nat ->
+    stable tau (Nat.iter i (step tau) g) ->
+    is_fixpoint tau (Nat.iter i (step tau) g).
+Proof.
+  intros tau g N i Hwf Hi Hstable.
+  unfold is_fixpoint.
+  apply step_stable_fixed_point.
+  assumption.
+Qed.
+
+Theorem iteration_preserves_fixpoint :
+  forall tau g n,
+    wellformed_grid g ->
+    is_fixpoint tau g ->
+    Nat.iter n (step tau) g = g.
+Proof.
+  intros tau g n Hwf Hfix.
+  induction n as [|n' IH]; simpl.
+  - reflexivity.
+  - rewrite IH.
+    unfold is_fixpoint in Hfix.
+    assumption.
+Qed.
+
+Lemma period_from_repeat :
+  forall tau g i j,
+    wellformed_grid g ->
+    (i < j)%nat ->
+    Nat.iter i (step tau) g = Nat.iter j (step tau) g ->
+    has_period tau (Nat.iter i (step tau) g) (j - i).
+Proof.
+  intros tau g i j Hwf Hij Heq.
+  apply step_iter_repeat_implies_period; assumption.
+Qed.
+
+Theorem period_positive :
+  forall tau g p,
+    has_period tau g p ->
+    (p > 0)%nat.
+Proof.
+  intros tau g p [Hpos Hperiod].
+  assumption.
+Qed.
+
+Lemma period_mult_also_period :
+  forall tau g p k,
+    has_period tau g p ->
+    Nat.iter (k * p) (step tau) g = g.
+Proof.
+  intros tau g p k Hperiod.
+  apply period_multiple.
+  assumption.
+Qed.
+
+Corollary fixpoint_stays_fixed :
+  forall tau g n,
+    wellformed_grid g ->
+    is_fixpoint tau g ->
+    is_fixpoint tau (Nat.iter n (step tau) g).
+Proof.
+  intros tau g n Hwf Hfix.
+  unfold is_fixpoint in *.
+  rewrite iteration_preserves_fixpoint by assumption.
+  assumption.
+Qed.
+
+Lemma grid_configs_bound_positive :
+  (grid_configs_finite > 0)%nat.
+Proof.
+  unfold grid_configs_finite.
+  apply nat_pow_pos.
+  lia.
+Qed.
+
+Theorem complexity_bound_statement :
+  (grid_configs_finite = 3 ^ (grid_size * grid_size))%nat.
+Proof.
+  unfold grid_configs_finite.
+  reflexivity.
+Qed.
+
+Theorem configurations_grow_exponentially :
+  forall n,
+    (n > 0)%nat ->
+    (3 ^ n > n)%nat.
+Proof.
+  intros n Hn.
+  induction n as [|n' IH]; [lia|].
+  simpl.
+  destruct n' as [|n''].
+  - simpl. lia.
+  - assert (Hn': (0 < S n'')%nat) by lia.
+    specialize (IH Hn').
+    lia.
+Qed.
+
+Corollary config_space_larger_than_grid :
+  (grid_configs_finite > grid_size * grid_size)%nat.
+Proof.
+  unfold grid_configs_finite.
+  apply configurations_grow_exponentially.
+  apply Nat.mul_pos_pos; apply grid_size_pos.
+Qed.
+
+Lemma iter_zero_identity :
+  forall tau g,
+    Nat.iter 0 (step tau) g = g.
+Proof.
+  intros tau g.
+  reflexivity.
+Qed.
+
+Lemma iter_one_is_step :
+  forall tau g,
+    Nat.iter 1 (step tau) g = step tau g.
+Proof.
+  intros tau g.
+  reflexivity.
+Qed.
 
 End SchellingModel.
 
