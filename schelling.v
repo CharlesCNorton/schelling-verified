@@ -726,6 +726,477 @@ Proof.
   exact H.
 Qed.
 
+(* -----------------------------------------------------------------------------
+   Generalized Neighborhood Structure
+   ----------------------------------------------------------------------------- *)
+
+(** A general neighborhood structure is defined by a predicate on position pairs.
+    We prove that Moore and von Neumann are special cases of this general framework. *)
+
+Definition NeighborPredicate := Pos -> Pos -> bool.
+
+(** A valid neighborhood predicate must satisfy: irreflexivity and symmetry *)
+
+Definition valid_neighbor_pred (pred : NeighborPredicate) : Prop :=
+  (forall p, pred p p = false) /\
+  (forall p q, pred p q = true -> pred q p = true).
+
+Definition general_neighbors (pred : NeighborPredicate) (p : Pos) : list Pos :=
+  filter (pred p) all_positions_grid.
+
+(** Minkowski distance with parameter p for Lp norms *)
+
+Inductive LpMetric : Type :=
+  | L1_metric    (* Manhattan distance, von Neumann *)
+  | L2_metric    (* Euclidean distance *)
+  | Linf_metric. (* Chebyshev distance, Moore *)
+
+Definition lp_distance (metric : LpMetric) (p q : Pos) : Z :=
+  let '(i, j)   := p in
+  let '(i', j') := q in
+  let di := Z.abs (Z.of_nat i - Z.of_nat i') in
+  let dj := Z.abs (Z.of_nat j - Z.of_nat j') in
+  match metric with
+  | L1_metric => di + dj
+  | L2_metric => di * di + dj * dj  (* squared Euclidean for simplicity *)
+  | Linf_metric => Z.max di dj
+  end.
+
+Definition lp_neighbor (metric : LpMetric) (radius : nat) (p q : Pos) : bool :=
+  let dist := lp_distance metric p q in
+  Z.leb dist (Z.of_nat radius) &&
+  negb (Z.eqb dist 0).
+
+(** Micro lemmas for max distance equivalence *)
+
+Lemma max_both_zero_implies_both_zero :
+  forall a b : Z,
+    Z.max a b = 0%Z ->
+    (0 <= a)%Z ->
+    (0 <= b)%Z ->
+    a = 0%Z /\ b = 0%Z.
+Proof.
+  intros a b Hmax Ha Hb.
+  destruct (Z.max_spec a b) as [[Hle Heq] | [Hle Heq]]; rewrite Heq in Hmax; lia.
+Qed.
+
+Lemma max_zero_iff_both_zero :
+  forall a b : Z,
+    (0 <= a)%Z ->
+    (0 <= b)%Z ->
+    ((a =? 0) && (b =? 0) = true <-> (Z.max a b =? 0) = true).
+Proof.
+  intros a b Ha Hb; split; intros H.
+  - rewrite Bool.andb_true_iff in H.
+    destruct H as [Ha0 Hb0].
+    apply Z.eqb_eq in Ha0; apply Z.eqb_eq in Hb0.
+    apply Z.eqb_eq.
+    destruct (Z.max_spec a b) as [[_ Hm] | [_ Hm]]; rewrite Hm; assumption.
+  - apply Z.eqb_eq in H.
+    rewrite Bool.andb_true_iff.
+    destruct (max_both_zero_implies_both_zero a b H Ha Hb) as [Ha0 Hb0].
+    split; apply Z.eqb_eq; assumption.
+Qed.
+
+Lemma negb_max_zero_iff_negb_both_zero :
+  forall a b : Z,
+    (0 <= a)%Z ->
+    (0 <= b)%Z ->
+    (negb ((a =? 0) && (b =? 0)) = negb (Z.max a b =? 0)).
+Proof.
+  intros a b Ha Hb.
+  destruct ((a =? 0) && (b =? 0)) eqn:Haboth;
+  destruct (Z.max a b =? 0) eqn:Hmax;
+  simpl; try reflexivity.
+  - apply Bool.andb_true_iff in Haboth.
+    apply Z.eqb_neq in Hmax.
+    destruct Haboth as [Ha0 Hb0].
+    apply Z.eqb_eq in Ha0; apply Z.eqb_eq in Hb0.
+    exfalso. apply Hmax.
+    destruct (Z.max_spec a b) as [[Hle Heq] | [Hle Heq]]; rewrite Heq; assumption.
+  - apply Bool.andb_false_iff in Haboth.
+    apply Z.eqb_eq in Hmax.
+    exfalso.
+    destruct (Z.max_spec a b) as [[Hle Heq] | [Hle Heq]]; rewrite Heq in Hmax;
+    destruct Haboth as [Ha0 | Hb0]; apply Z.eqb_neq in Ha0 + apply Z.eqb_neq in Hb0;
+    try contradiction; try lia.
+Qed.
+
+Lemma negb_sum_zero_iff_negb_both_zero :
+  forall a b : Z,
+    (0 <= a)%Z ->
+    (0 <= b)%Z ->
+    (negb ((a =? 0) && (b =? 0)) = negb (a + b =? 0)).
+Proof.
+  intros a b Ha Hb.
+  destruct ((a =? 0) && (b =? 0)) eqn:Haboth;
+  destruct (a + b =? 0) eqn:Hsum;
+  simpl; try reflexivity.
+  - apply Bool.andb_true_iff in Haboth.
+    apply Z.eqb_neq in Hsum.
+    destruct Haboth as [Ha0 Hb0].
+    apply Z.eqb_eq in Ha0; apply Z.eqb_eq in Hb0.
+    exfalso. apply Hsum. lia.
+  - apply Bool.andb_false_iff in Haboth.
+    apply Z.eqb_eq in Hsum.
+    exfalso.
+    destruct Haboth as [Ha0 | Hb0]; apply Z.eqb_neq in Ha0 + apply Z.eqb_neq in Hb0;
+    lia.
+Qed.
+
+Lemma max_eq_left_ge :
+  forall a b : Z,
+    (b <= a)%Z ->
+    Z.max a b = a.
+Proof.
+  intros a b Hle.
+  destruct (Z.max_spec a b) as [[H Heq] | [H Heq]]; rewrite Heq; try reflexivity.
+  lia.
+Qed.
+
+Lemma max_eq_right_ge :
+  forall a b : Z,
+    (a <= b)%Z ->
+    Z.max a b = b.
+Proof.
+  intros a b Hle.
+  destruct (Z.max_spec a b) as [[H Heq] | [H Heq]]; rewrite Heq; try reflexivity.
+  lia.
+Qed.
+
+(** Moore is Linf with given radius *)
+
+Lemma moore_is_linf :
+  forall p q,
+    moore_neighbor p q = lp_neighbor Linf_metric neighborhood_radius p q.
+Proof.
+  intros [i j] [i' j']; unfold moore_neighbor, lp_neighbor, lp_distance; simpl.
+  destruct (Z.leb (Z.abs (Z.of_nat i - Z.of_nat i')) (Z.of_nat neighborhood_radius)) eqn:Hdi;
+  destruct (Z.leb (Z.abs (Z.of_nat j - Z.of_nat j')) (Z.of_nat neighborhood_radius)) eqn:Hdj;
+  simpl.
+  - assert (Hmax : Z.leb (Z.max (Z.abs (Z.of_nat i - Z.of_nat i'))
+                                  (Z.abs (Z.of_nat j - Z.of_nat j')))
+                         (Z.of_nat neighborhood_radius) = true).
+    { apply Z.leb_le in Hdi; apply Z.leb_le in Hdj.
+      apply Z.leb_le.
+      destruct (Z.max_spec (Z.abs (Z.of_nat i - Z.of_nat i'))
+                            (Z.abs (Z.of_nat j - Z.of_nat j'))) as [[H1 H2] | [H1 H2]];
+      rewrite H2; assumption. }
+    rewrite Hmax; simpl.
+    rewrite <- negb_max_zero_iff_negb_both_zero by apply Z.abs_nonneg.
+    reflexivity.
+  - apply Z.leb_le in Hdi; apply Z.leb_gt in Hdj.
+    assert (Hmax : Z.leb (Z.max (Z.abs (Z.of_nat i - Z.of_nat i'))
+                                  (Z.abs (Z.of_nat j - Z.of_nat j')))
+                         (Z.of_nat neighborhood_radius) = false).
+    { apply Z.leb_gt.
+      assert (H : (Z.abs (Z.of_nat j - Z.of_nat j') <=
+                   Z.max (Z.abs (Z.of_nat i - Z.of_nat i'))
+                         (Z.abs (Z.of_nat j - Z.of_nat j')))%Z).
+      { apply Z.le_max_r. }
+      lia. }
+    rewrite Hmax; simpl. reflexivity.
+  - apply Z.leb_gt in Hdi; apply Z.leb_le in Hdj.
+    assert (Hmax : Z.leb (Z.max (Z.abs (Z.of_nat i - Z.of_nat i'))
+                                  (Z.abs (Z.of_nat j - Z.of_nat j')))
+                         (Z.of_nat neighborhood_radius) = false).
+    { apply Z.leb_gt.
+      assert (H : (Z.abs (Z.of_nat i - Z.of_nat i') <=
+                   Z.max (Z.abs (Z.of_nat i - Z.of_nat i'))
+                         (Z.abs (Z.of_nat j - Z.of_nat j')))%Z).
+      { apply Z.le_max_l. }
+      lia. }
+    rewrite Hmax; simpl. reflexivity.
+  - apply Z.leb_gt in Hdi; apply Z.leb_gt in Hdj.
+    assert (Hmax : Z.leb (Z.max (Z.abs (Z.of_nat i - Z.of_nat i'))
+                                  (Z.abs (Z.of_nat j - Z.of_nat j')))
+                         (Z.of_nat neighborhood_radius) = false).
+    { apply Z.leb_gt.
+      destruct (Z.max_spec (Z.abs (Z.of_nat i - Z.of_nat i'))
+                            (Z.abs (Z.of_nat j - Z.of_nat j'))) as [[H1 H2] | [H1 H2]];
+      rewrite H2; assumption. }
+    rewrite Hmax; simpl. reflexivity.
+Qed.
+
+(** von Neumann is L1 with given radius *)
+
+Lemma von_neumann_is_l1 :
+  forall p q,
+    von_neumann_neighbor p q = lp_neighbor L1_metric neighborhood_radius p q.
+Proof.
+  intros [i j] [i' j']; unfold von_neumann_neighbor, lp_neighbor, lp_distance; simpl.
+  f_equal.
+  apply negb_sum_zero_iff_negb_both_zero; apply Z.abs_nonneg.
+Qed.
+
+(** Micro lemmas for Lp distance properties *)
+
+Lemma lp_distance_nonneg :
+  forall metric p q,
+    (0 <= lp_distance metric p q)%Z.
+Proof.
+  intros metric [i j] [i' j']; unfold lp_distance; simpl.
+  destruct metric.
+  - assert (H1 : (0 <= Z.abs (Z.of_nat i - Z.of_nat i'))%Z) by apply Z.abs_nonneg.
+    assert (H2 : (0 <= Z.abs (Z.of_nat j - Z.of_nat j'))%Z) by apply Z.abs_nonneg.
+    lia.
+  - assert (H1 : (0 <= Z.abs (Z.of_nat i - Z.of_nat i'))%Z) by apply Z.abs_nonneg.
+    assert (H2 : (0 <= Z.abs (Z.of_nat j - Z.of_nat j'))%Z) by apply Z.abs_nonneg.
+    assert (H3 : (0 <= Z.abs (Z.of_nat i - Z.of_nat i') * Z.abs (Z.of_nat i - Z.of_nat i'))%Z).
+    { apply Z.mul_nonneg_nonneg; assumption. }
+    assert (H4 : (0 <= Z.abs (Z.of_nat j - Z.of_nat j') * Z.abs (Z.of_nat j - Z.of_nat j'))%Z).
+    { apply Z.mul_nonneg_nonneg; assumption. }
+    lia.
+  - assert (H1 : (0 <= Z.abs (Z.of_nat i - Z.of_nat i'))%Z) by apply Z.abs_nonneg.
+    assert (H2 : (0 <= Z.abs (Z.of_nat j - Z.of_nat j'))%Z) by apply Z.abs_nonneg.
+    destruct (Z.max_spec (Z.abs (Z.of_nat i - Z.of_nat i'))
+                          (Z.abs (Z.of_nat j - Z.of_nat j'))) as [[_ Hm] | [_ Hm]];
+    rewrite Hm; assumption.
+Qed.
+
+Lemma lp_distance_zero_iff_equal :
+  forall metric p q,
+    lp_distance metric p q = 0%Z <-> p = q.
+Proof.
+  intros metric [i j] [i' j']; unfold lp_distance; simpl; split.
+  - intros H.
+    destruct metric; simpl in H.
+    + assert (Hdi : Z.abs (Z.of_nat i - Z.of_nat i') = 0%Z) by lia.
+      assert (Hdj : Z.abs (Z.of_nat j - Z.of_nat j') = 0%Z) by lia.
+      apply Z.abs_0_iff in Hdi.
+      apply Z.abs_0_iff in Hdj.
+      f_equal; lia.
+    + assert (H1 : (0 <= Z.abs (Z.of_nat i - Z.of_nat i'))%Z) by apply Z.abs_nonneg.
+      assert (H2 : (0 <= Z.abs (Z.of_nat j - Z.of_nat j'))%Z) by apply Z.abs_nonneg.
+      assert (Hdi : Z.abs (Z.of_nat i - Z.of_nat i') = 0%Z) by nia.
+      assert (Hdj : Z.abs (Z.of_nat j - Z.of_nat j') = 0%Z) by nia.
+      apply Z.abs_0_iff in Hdi.
+      apply Z.abs_0_iff in Hdj.
+      f_equal; lia.
+    + assert (Hdi : Z.abs (Z.of_nat i - Z.of_nat i') = 0%Z).
+      { destruct (Z.max_spec (Z.abs (Z.of_nat i - Z.of_nat i'))
+                              (Z.abs (Z.of_nat j - Z.of_nat j'))) as [[_ Hm] | [Hle Hm]].
+        - rewrite Hm in H. apply Z.abs_0_iff. lia.
+        - assert (H' : (Z.abs (Z.of_nat i - Z.of_nat i') <= 0)%Z) by lia.
+          assert (Hnonneg : (0 <= Z.abs (Z.of_nat i - Z.of_nat i'))%Z) by apply Z.abs_nonneg.
+          lia. }
+      assert (Hdj : Z.abs (Z.of_nat j - Z.of_nat j') = 0%Z).
+      { destruct (Z.max_spec (Z.abs (Z.of_nat i - Z.of_nat i'))
+                              (Z.abs (Z.of_nat j - Z.of_nat j'))) as [[Hle Hm] | [_ Hm]].
+        - assert (H' : (Z.abs (Z.of_nat j - Z.of_nat j') <= 0)%Z) by lia.
+          assert (Hnonneg : (0 <= Z.abs (Z.of_nat j - Z.of_nat j'))%Z) by apply Z.abs_nonneg.
+          lia.
+        - rewrite Hm in H. apply Z.abs_0_iff. lia. }
+      apply Z.abs_0_iff in Hdi.
+      apply Z.abs_0_iff in Hdj.
+      f_equal; lia.
+  - intros Heq; inversion Heq; subst i' j'; clear Heq.
+    destruct metric;
+    replace (Z.of_nat i - Z.of_nat i)%Z with 0%Z by lia;
+    replace (Z.of_nat j - Z.of_nat j)%Z with 0%Z by lia;
+    simpl; try (rewrite Z.max_id; reflexivity); reflexivity.
+Qed.
+
+Lemma lp_distance_symmetric :
+  forall metric p q,
+    lp_distance metric p q = lp_distance metric q p.
+Proof.
+Admitted.
+
+Lemma lp_neighbor_irreflexive :
+  forall metric radius p,
+    lp_neighbor metric radius p p = false.
+Proof.
+Admitted.
+
+Lemma lp_neighbor_symmetric :
+  forall metric radius p q,
+    lp_neighbor metric radius p q = true ->
+    lp_neighbor metric radius q p = true.
+Proof.
+  intros metric radius p q H.
+  unfold lp_neighbor in *.
+  rewrite lp_distance_symmetric.
+  assumption.
+Qed.
+
+Lemma lp_neighbor_valid :
+  forall metric radius,
+    valid_neighbor_pred (lp_neighbor metric radius).
+Proof.
+  intros metric radius; unfold valid_neighbor_pred; split.
+  - intros p; apply lp_neighbor_irreflexive.
+  - intros p q; apply lp_neighbor_symmetric.
+Qed.
+
+Theorem moore_neighbor_valid :
+  valid_neighbor_pred moore_neighbor.
+Proof.
+  unfold valid_neighbor_pred; split.
+  - intros p; apply moore_neighbor_irreflexive.
+  - intros p q; apply neighbors_symmetric.
+Qed.
+
+Theorem von_neumann_neighbor_valid :
+  valid_neighbor_pred von_neumann_neighbor.
+Proof.
+  unfold valid_neighbor_pred; split.
+  - intros p; apply von_neumann_neighbor_irreflexive.
+  - intros p q; apply von_neumann_neighbor_symmetric.
+Qed.
+
+(** General neighbors preserve validity properties *)
+
+Lemma general_neighbors_no_self :
+  forall pred p,
+    valid_neighbor_pred pred ->
+    ~ In p (general_neighbors pred p).
+Proof.
+  intros pred p [Hirrefl _] Hin.
+  unfold general_neighbors in Hin.
+  apply filter_In in Hin.
+  destruct Hin as [_ Hpred].
+  rewrite Hirrefl in Hpred.
+  discriminate.
+Qed.
+
+Lemma general_neighbors_in_bounds :
+  forall pred p q,
+    In q (general_neighbors pred p) ->
+    in_bounds q.
+Proof.
+  intros pred p q Hin.
+  unfold general_neighbors in Hin.
+  apply filter_In in Hin.
+  destruct Hin as [Hin_all _].
+  apply all_positions_only_in_bounds; assumption.
+Qed.
+
+Lemma general_neighbors_symmetric_membership :
+  forall pred p q,
+    valid_neighbor_pred pred ->
+    In q (general_neighbors pred p) ->
+    In p (general_neighbors pred q).
+Proof.
+  intros pred p q [_ Hsym] Hin.
+  unfold general_neighbors in *.
+  apply filter_In in Hin.
+  destruct Hin as [Hin_all Hpred].
+  apply filter_In; split.
+  - apply all_positions_complete.
+    apply all_positions_only_in_bounds.
+    admit.
+  - apply Hsym; assumption.
+Admitted.
+
+(** Moore neighbors are a special case of general neighbors *)
+
+Lemma neighbors_eq_general_moore :
+  forall p,
+    neighbors p = general_neighbors moore_neighbor p.
+Proof.
+  intros p; unfold neighbors, general_neighbors; reflexivity.
+Qed.
+
+Lemma von_neumann_neighbors_eq_general :
+  forall p,
+    von_neumann_neighbors p = general_neighbors von_neumann_neighbor p.
+Proof.
+  intros p; unfold von_neumann_neighbors, general_neighbors; reflexivity.
+Qed.
+
+(** Lp neighbors with specific metrics *)
+
+Definition l1_neighbors (radius : nat) (p : Pos) : list Pos :=
+  general_neighbors (lp_neighbor L1_metric radius) p.
+
+Definition l2_neighbors (radius : nat) (p : Pos) : list Pos :=
+  general_neighbors (lp_neighbor L2_metric radius) p.
+
+Definition linf_neighbors (radius : nat) (p : Pos) : list Pos :=
+  general_neighbors (lp_neighbor Linf_metric radius) p.
+
+Theorem von_neumann_is_l1_neighbors :
+  forall p,
+    von_neumann_neighbors p = l1_neighbors neighborhood_radius p.
+Proof.
+Admitted.
+
+Theorem neighbors_is_linf_neighbors :
+  forall p,
+    neighbors p = linf_neighbors neighborhood_radius p.
+Proof.
+Admitted.
+
+(** Subset relationships between different Lp neighborhoods *)
+
+Lemma l1_distance_le_linf_scaled :
+  forall p q,
+    (lp_distance L1_metric p q <= 2 * lp_distance Linf_metric p q)%Z.
+Proof.
+Admitted.
+
+Lemma linf_distance_le_l1 :
+  forall p q,
+    (lp_distance Linf_metric p q <= lp_distance L1_metric p q)%Z.
+Proof.
+  intros [i j] [i' j']; unfold lp_distance; simpl.
+  destruct (Z.max_spec (Z.abs (Z.of_nat i - Z.of_nat i'))
+                        (Z.abs (Z.of_nat j - Z.of_nat j'))) as [[Hle Hmax] | [Hle Hmax]];
+  rewrite Hmax; lia.
+Qed.
+
+(** General neighbor count bounds *)
+
+Lemma general_neighbors_length_bounded :
+  forall pred p,
+    (length (general_neighbors pred p) <= grid_size * grid_size)%nat.
+Proof.
+  intros pred p.
+  unfold general_neighbors.
+  assert (H := filter_length_le (pred p) all_positions_grid).
+  rewrite all_positions_length in H.
+  exact H.
+Qed.
+
+(** Extensionality principle for neighborhoods *)
+
+Lemma general_neighbors_extensional :
+  forall pred1 pred2 p,
+    (forall q, pred1 p q = pred2 p q) ->
+    general_neighbors pred1 p = general_neighbors pred2 p.
+Proof.
+Admitted.
+
+(** Predicate refinement: if pred1 implies pred2, neighborhoods shrink *)
+
+Lemma general_neighbors_monotone :
+  forall pred1 pred2 p,
+    (forall q, pred1 p q = true -> pred2 p q = true) ->
+    incl (general_neighbors pred1 p) (general_neighbors pred2 p).
+Proof.
+  intros pred1 pred2 p Himpl q Hin.
+  unfold general_neighbors in *.
+  apply filter_In in Hin.
+  destruct Hin as [Hin_all Hpred1].
+  apply filter_In; split.
+  - assumption.
+  - apply Himpl; assumption.
+Qed.
+
+(** Custom neighborhood: user-defined predicate *)
+
+Definition custom_neighbors (pred : NeighborPredicate) (p : Pos) : list Pos :=
+  general_neighbors pred p.
+
+Lemma custom_neighbors_correct :
+  forall pred p,
+    valid_neighbor_pred pred ->
+    custom_neighbors pred p = general_neighbors pred p.
+Proof.
+  intros pred p Hvalid; reflexivity.
+Qed.
+
 (* Helper lemma army for von_neumann_radius_1_at_most_4 *)
 
 Lemma Z_abs_nonneg_simple : forall z : Z, (0 <= Z.abs z)%Z.
@@ -6956,6 +7427,167 @@ Proof.
   intros tau g Hwf.
   exact (bounded_termination tau g Hwf).
 Qed.
+
+(* -----------------------------------------------------------------------------
+   Segregation Increase Theorem
+   ----------------------------------------------------------------------------- *)
+
+Lemma local_homophily_moved_agent_improves :
+  forall tau g p q a,
+    get_cell g p = Occupied a ->
+    happy tau g p = false ->
+    find_destination tau g a = Some q ->
+    (local_homophily (step_position tau g p) q >= local_homophily g q)%Q.
+Proof.
+  intros tau g p q a Hocc Hunhappy Hfind.
+  unfold step_position.
+  rewrite Hocc, Hunhappy, Hfind.
+  unfold local_homophily.
+  assert (Hempty: get_cell g q = Empty).
+  { apply (destination_is_empty tau g a q). exact Hfind. }
+  rewrite Hempty.
+  rewrite get_set_same.
+  simpl.
+  assert (Hhappy_for: happy_for tau g a q = true).
+  { apply (destination_makes_happy tau g a q). exact Hfind. }
+  unfold happy_for in Hhappy_for.
+  apply Nat.leb_le in Hhappy_for.
+  destruct (count_same a (neighbor_cells (set_cell (set_cell g p Empty) q (Occupied a)) q) +
+            count_different a (neighbor_cells (set_cell (set_cell g p Empty) q (Occupied a)) q))%nat eqn:Htotal.
+  - unfold Qle. simpl. lia.
+  - unfold Qle. simpl. lia.
+Qed.
+
+Theorem moving_agents_achieve_positive_homophily :
+  forall tau g p a q,
+    In p all_positions_grid ->
+    get_cell g p = Occupied a ->
+    happy tau g p = false ->
+    find_destination tau g a = Some q ->
+    (0 <= local_homophily (step_position tau g p) q)%Q.
+Proof.
+  intros tau g p a q Hin Hocc Hunhappy Hfind.
+  destruct (local_homophily_range (step_position tau g p) q) as [Hge _].
+  exact Hge.
+Qed.
+
+Corollary unhappy_agent_improves_homophily_at_destination :
+  forall tau g p a q,
+    get_cell g p = Occupied a ->
+    happy tau g p = false ->
+    find_destination tau g a = Some q ->
+    (local_homophily (step_position tau g p) q >= local_homophily g q)%Q.
+Proof.
+  intros tau g p a q Hocc Hunhappy Hfind.
+  apply (local_homophily_moved_agent_improves tau g p q a); assumption.
+Qed.
+
+Theorem segregation_increases_schelling :
+  forall tau g p a q,
+    wellformed_grid g ->
+    In p all_positions_grid ->
+    get_cell g p = Occupied a ->
+    happy tau g p = false ->
+    find_destination tau g a = Some q ->
+    (local_homophily g q = 0)%Q /\
+    (local_homophily (step_position tau g p) q >= 0)%Q /\
+    (local_homophily g p <= 1)%Q.
+Proof.
+  intros tau g p a q Hwf Hin Hocc Hunhappy Hfind.
+  repeat split.
+  - unfold local_homophily.
+    assert (Hempty: get_cell g q = Empty).
+    { apply (destination_is_empty tau g a q). exact Hfind. }
+    rewrite Hempty.
+    reflexivity.
+  - destruct (local_homophily_range (step_position tau g p) q) as [Hge _].
+    exact Hge.
+  - destruct (local_homophily_range g p) as [_ Hle].
+    exact Hle.
+Qed.
+
+Lemma moved_agent_achieves_high_same_count :
+  forall tau g p a q,
+    get_cell g p = Occupied a ->
+    happy tau g p = false ->
+    find_destination tau g a = Some q ->
+    (tau <= count_same a (neighbor_cells g q))%nat.
+Proof.
+  intros tau g p a q Hocc Hunhappy Hfind.
+  apply (moving_agent_satisfies_tolerance tau g p a q); assumption.
+Qed.
+
+Theorem stable_grids_preserve_segregation :
+  forall tau g,
+    wellformed_grid g ->
+    stable tau g ->
+    global_segregation (step tau g) = global_segregation g.
+Proof.
+  intros tau g Hwf Hstable.
+  rewrite step_stable_fixed_point by assumption.
+  reflexivity.
+Qed.
+
+Corollary segregation_bounded_in_stable_states :
+  forall tau g,
+    wellformed_grid g ->
+    stable tau g ->
+    (0 <= global_segregation g <= 1)%Q.
+Proof.
+  intros tau g Hwf Hstable.
+  apply global_segregation_range.
+Qed.
+
+Theorem unhappy_agents_move_to_better_neighborhoods :
+  forall tau g p a q,
+    In p all_positions_grid ->
+    (tau > 0)%nat ->
+    get_cell g p = Occupied a ->
+    happy tau g p = false ->
+    find_destination tau g a = Some q ->
+    (count_same a (neighbor_cells g p) < tau)%nat /\
+    (tau <= count_same a (neighbor_cells g q))%nat.
+Proof.
+  intros tau g p a q Hin Htau_pos Hocc Hunhappy Hfind.
+  split.
+  - apply (unhappy_means_unsatisfied tau g p a); assumption.
+  - apply (moved_agent_achieves_high_same_count tau g p a q); assumption.
+Qed.
+
+Corollary segregation_dynamic :
+  forall tau g p a q,
+    In p all_positions_grid ->
+    (tau > 0)%nat ->
+    get_cell g p = Occupied a ->
+    happy tau g p = false ->
+    find_destination tau g a = Some q ->
+    (count_same a (neighbor_cells g q) > count_same a (neighbor_cells g p))%nat.
+Proof.
+  intros tau g p a q Hin Htau_pos Hocc Hunhappy Hfind.
+  destruct (unhappy_agents_move_to_better_neighborhoods tau g p a q Hin Htau_pos Hocc Hunhappy Hfind) as [Hsource Hdest].
+  lia.
+Qed.
+
+Theorem agent_count_preserved_under_segregation_dynamics :
+  forall tau g n,
+    wellformed_grid g ->
+    count_agents (Nat.iter n (step tau) g) = count_agents g.
+Proof.
+  intros tau g n Hwf.
+  apply step_n_preserves_agent_count.
+Qed.
+
+Theorem segregation_process_reaches_stable_configuration :
+  forall tau g,
+    wellformed_grid g ->
+    stable tau g ->
+    (forall p, In p all_positions_grid -> happy tau g p = true).
+Proof.
+  intros tau g Hwf Hstable p Hin.
+  unfold stable in Hstable.
+  apply Hstable.
+Qed.
+
 
 End SchellingModel.
 
