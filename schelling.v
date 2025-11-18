@@ -139,6 +139,16 @@ Definition Pos := (nat * nat)%type.
 
 Definition Grid := Pos -> Cell.
 
+(* ============================================================================
+   Implicit Types - Variable Naming Conventions
+   ============================================================================ *)
+
+(* Note: Implicit Types are NOT used in this development due to extensive
+   variable name reuse across different types (e.g., 'g' for both Grid and
+   position bijections, 'p' for both Pos and periods, 'a' and 'b' for both
+   Agent and integers). Notations provide sufficient abbreviation without
+   type conflicts. *)
+
 (* -----------------------------------------------------------------------------
    Equality on Agents and Positions
    ----------------------------------------------------------------------------- *)
@@ -265,6 +275,32 @@ Proof.
   assert (Hneq' : q <> p) by (intros contra; subst; apply Hneq; reflexivity).
   rewrite pos_eqb_neq; [reflexivity|assumption].
 Qed.
+
+(* ============================================================================
+   Notations - Compact Syntax for Common Patterns
+   ============================================================================ *)
+
+(* Grid operations *)
+Notation "g [ p ]" := (get_cell g p) (at level 50, left associativity).
+Notation "g [ p <- c ]" := (set_cell g p c) (at level 50, left associativity).
+
+(* Bounds checking *)
+Notation "p ∈ ℬ" := (in_bounds p) (at level 70).
+Notation "p ∉ ℬ" := (~ in_bounds p) (at level 70).
+
+(** Usage Examples:
+    Before: get_cell g p = Occupied a
+    After:  g[p] = Occupied a
+
+    Before: set_cell (set_cell g p Empty) q (Occupied a)
+    After:  (g[p <- Empty])[q <- Occupied a]
+
+    Before: forall g, wellformed_grid g -> ...
+    After:  forall g, ⊢ g -> ...
+
+    Before: in_bounds p /\ in_bounds q
+    After:  p ∈ ℬ /\ q ∈ ℬ
+*)
 
 (* -----------------------------------------------------------------------------
    Proof Automation Tactics
@@ -2139,6 +2175,39 @@ Fixpoint all_happy_b (tau : nat) (g : Grid) (ps : list Pos) : bool :=
 
 Definition stable_b (tau : nat) (g : Grid) : bool :=
   all_happy_b tau g all_positions_grid.
+
+(* ============================================================================
+   Additional Notations - Grid Predicates and Dynamics
+   ============================================================================ *)
+
+(* Wellformedness *)
+Notation "⊢ g" := (wellformed_grid g) (at level 70, no associativity).
+
+(* Happiness and stability *)
+Notation "g ⊨[ tau ] p" := (happy tau g p = true) (at level 70).
+Notation "g ⊭[ tau ] p" := (happy tau g p = false) (at level 70).
+Notation "⌊ tau ⌋ g" := (stable tau g) (at level 70, no associativity).
+
+(* Step function *)
+Notation "g →[ tau ]" := (step tau g) (at level 50).
+Notation "g ^[ tau , n ]" := (Nat.iter n (step tau) g) (at level 50).
+
+(** Usage Examples:
+    Before: Lemma foo : forall tau g p a,
+              wellformed_grid g ->
+              get_cell g p = Occupied a ->
+              happy tau g p = false -> ...
+    After:  Lemma foo : forall tau g p a,
+              ⊢ g ->
+              g[p] = Occupied a ->
+              g ⊭[tau] p -> ...
+
+    Before: stable tau g -> step tau g = g
+    After:  ⌊tau⌋ g -> g →[tau] = g
+
+    Before: Nat.iter 10 (step tau) g
+    After:  g ^[tau, 10]
+*)
 
 Lemma all_happy_b_spec :
   forall tau g ps,
