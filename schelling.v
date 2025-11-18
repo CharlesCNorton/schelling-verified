@@ -6728,6 +6728,235 @@ Proof.
   reflexivity.
 Qed.
 
+Lemma grid_eq_decidable :
+  forall g1 g2,
+    wellformed_grid g1 ->
+    wellformed_grid g2 ->
+    {g1 = g2} + {g1 <> g2}.
+Proof.
+  intros g1 g2 Hwf1 Hwf2.
+  destruct (grid_eq g1 g2) eqn:Heq.
+  - left; apply grid_eq_true_to_functional_eq; assumption.
+  - right; intros Hcontra; subst; rewrite grid_eq_refl in Heq; discriminate.
+Defined.
+
+Lemma fixpoint_or_progress :
+  forall tau g,
+    wellformed_grid g ->
+    is_fixpoint tau g \/ step tau g <> g.
+Proof.
+  intros tau g Hwf.
+  destruct (grid_eq_decidable g (step tau g) Hwf (step_preserves_wellformed tau g Hwf)) as [Heq | Hneq].
+  - left; unfold is_fixpoint; symmetry; assumption.
+  - right; intros Hcontra; apply Hneq; symmetry; assumption.
+Qed.
+
+Lemma iter_fixpoint_stable :
+  forall tau g n,
+    wellformed_grid g ->
+    is_fixpoint tau (Nat.iter n (step tau) g) ->
+    forall k, (k >= n)%nat -> Nat.iter k (step tau) g = Nat.iter n (step tau) g.
+Proof.
+  intros tau g n Hwf Hfix k Hk.
+  replace k with (n + (k - n))%nat by lia.
+  rewrite step_iter_add.
+  apply iteration_preserves_fixpoint.
+  - apply step_iter_wellformed; assumption.
+  - assumption.
+Qed.
+
+Lemma iter_bound_wellformed :
+  forall tau g n,
+    wellformed_grid g ->
+    (n <= grid_configs_finite)%nat ->
+    wellformed_grid (Nat.iter n (step tau) g).
+Proof.
+  intros tau g n Hwf Hn.
+  apply step_iter_wellformed; assumption.
+Qed.
+
+Lemma consecutive_iter_equal_is_fixpoint :
+  forall tau g n,
+    wellformed_grid g ->
+    Nat.iter n (step tau) g = Nat.iter (S n) (step tau) g ->
+    is_fixpoint tau (Nat.iter n (step tau) g).
+Proof.
+  intros tau g n Hwf Heq.
+  unfold is_fixpoint.
+  simpl in Heq.
+  symmetry.
+  assumption.
+Qed.
+
+Lemma iter_at_n_wellformed :
+  forall tau g n,
+    wellformed_grid g ->
+    wellformed_grid (Nat.iter n (step tau) g).
+Proof.
+  intros tau g n Hwf.
+  apply step_n_preserves_wellformed.
+  assumption.
+Qed.
+
+Lemma iter_comparison_decidable :
+  forall tau g n m,
+    wellformed_grid g ->
+    {Nat.iter n (step tau) g = Nat.iter m (step tau) g} +
+    {Nat.iter n (step tau) g <> Nat.iter m (step tau) g}.
+Proof.
+  intros tau g n m Hwf.
+  apply grid_eq_decidable.
+  - apply iter_at_n_wellformed; assumption.
+  - apply iter_at_n_wellformed; assumption.
+Defined.
+
+Lemma fixpoint_at_n_decidable :
+  forall tau g n,
+    wellformed_grid g ->
+    {is_fixpoint tau (Nat.iter n (step tau) g)} +
+    {~ is_fixpoint tau (Nat.iter n (step tau) g)}.
+Proof.
+  intros tau g n Hwf.
+  unfold is_fixpoint.
+  destruct (iter_comparison_decidable tau g n (S n) Hwf) as [Heq | Hneq].
+  - left.
+    simpl in Heq.
+    symmetry.
+    assumption.
+  - right.
+    intros Hcontra.
+    apply Hneq.
+    simpl.
+    symmetry.
+    assumption.
+Defined.
+
+Lemma fixpoint_exists_in_range :
+  forall tau g n,
+    wellformed_grid g ->
+    (n > 0)%nat ->
+    (exists k, (k < n)%nat /\ is_fixpoint tau (Nat.iter k (step tau) g)) \/
+    (forall k, (k < n)%nat -> ~ is_fixpoint tau (Nat.iter k (step tau) g)).
+Proof.
+  intros tau g n Hwf Hn.
+  induction n as [|n' IH].
+  - lia.
+  - destruct (fixpoint_at_n_decidable tau g n' Hwf) as [Hfix | Hnfix].
+    + left.
+      exists n'.
+      split; [lia | assumption].
+    + destruct n' as [|n''].
+      * right.
+        intros k Hk.
+        assert (k = 0)%nat by lia.
+        subst k.
+        assumption.
+      * destruct (IH (Nat.lt_0_succ n'')) as [[k [Hk Hfix]] | Hall].
+        -- left.
+           exists k.
+           split; [lia | assumption].
+        -- right.
+           intros k Hk.
+           destruct (Nat.lt_ge_cases k (S n'')) as [Hlt | Hge].
+           ++ apply Hall.
+              assumption.
+           ++ assert (k = S n'') by lia.
+              subst k.
+              assumption.
+Qed.
+
+Theorem bounded_termination :
+  forall tau g,
+    wellformed_grid g ->
+    (exists n, (n < grid_configs_finite)%nat /\ is_fixpoint tau (Nat.iter n (step tau) g)) \/
+    (forall i, (i < grid_configs_finite)%nat -> ~ is_fixpoint tau (Nat.iter i (step tau) g)).
+Proof.
+  intros tau g Hwf.
+  assert (Hpos : (grid_configs_finite > 0)%nat) by apply grid_configs_bound_positive.
+  destruct (fixpoint_exists_in_range tau g grid_configs_finite Hwf Hpos) as [[k [Hk Hfix]] | Hall].
+  - left.
+    exists k.
+    split; [assumption | assumption].
+  - right.
+    intros i Hi.
+    apply Hall.
+    assumption.
+Qed.
+
+Lemma no_fixpoint_means_progress_always :
+  forall tau g n,
+    wellformed_grid g ->
+    ~ is_fixpoint tau (Nat.iter n (step tau) g) ->
+    Nat.iter n (step tau) g <> Nat.iter (S n) (step tau) g.
+Proof.
+  intros tau g n Hwf Hnfix.
+  intros Hcontra.
+  apply Hnfix.
+  apply consecutive_iter_equal_is_fixpoint.
+  - assumption.
+  - assumption.
+Qed.
+
+Theorem bounded_termination_v2 :
+  forall tau g,
+    wellformed_grid g ->
+    (exists n, (n < grid_configs_finite)%nat /\ is_fixpoint tau (Nat.iter n (step tau) g)) \/
+    (forall i, (i < grid_configs_finite)%nat ->
+       Nat.iter i (step tau) g <> Nat.iter (S i) (step tau) g).
+Proof.
+  intros tau g Hwf.
+  destruct (bounded_termination tau g Hwf) as [[n [Hn Hfix]] | Hall].
+  - left.
+    exists n.
+    split; [assumption | assumption].
+  - right.
+    intros i Hi.
+    apply no_fixpoint_means_progress_always.
+    + assumption.
+    + apply Hall.
+      assumption.
+Qed.
+
+Corollary termination_dichotomy :
+  forall tau g,
+    wellformed_grid g ->
+    (exists n, (n < grid_configs_finite)%nat /\ is_fixpoint tau (Nat.iter n (step tau) g)) \/
+    (forall i, (i < grid_configs_finite)%nat -> ~ is_fixpoint tau (Nat.iter i (step tau) g)).
+Proof.
+  intros tau g Hwf.
+  exact (bounded_termination tau g Hwf).
+Qed.
+
+Lemma succ_iter_unfold :
+  forall tau g n,
+    Nat.iter (S n) (step tau) g = step tau (Nat.iter n (step tau) g).
+Proof.
+  intros tau g n.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma no_fixpoint_below_means_none_at :
+  forall tau g n i,
+    (forall j, (j < n)%nat -> ~ is_fixpoint tau (Nat.iter j (step tau) g)) ->
+    (i < n)%nat ->
+    ~ is_fixpoint tau (Nat.iter i (step tau) g).
+Proof.
+  intros tau g n i Hall Hi.
+  apply Hall.
+  exact Hi.
+Qed.
+
+Corollary termination_summary :
+  forall tau g,
+    wellformed_grid g ->
+    (exists n, (n < grid_configs_finite)%nat /\ is_fixpoint tau (Nat.iter n (step tau) g)) \/
+    (forall i, (i < grid_configs_finite)%nat -> ~ is_fixpoint tau (Nat.iter i (step tau) g)).
+Proof.
+  intros tau g Hwf.
+  exact (bounded_termination tau g Hwf).
+Qed.
+
 End SchellingModel.
 
 (* -----------------------------------------------------------------------------
