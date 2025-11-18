@@ -1091,19 +1091,18 @@ Qed.
 Lemma general_neighbors_symmetric_membership :
   forall pred p q,
     valid_neighbor_pred pred ->
+    in_bounds p ->
     In q (general_neighbors pred p) ->
     In p (general_neighbors pred q).
 Proof.
-  intros pred p q [_ Hsym] Hin.
+  intros pred p q [_ Hsym] Hp_bounds Hin.
   unfold general_neighbors in *.
   apply filter_In in Hin.
   destruct Hin as [Hin_all Hpred].
   apply filter_In; split.
-  - apply all_positions_complete.
-    apply all_positions_only_in_bounds.
-    admit.
+  - apply all_positions_complete; assumption.
   - apply Hsym; assumption.
-Admitted.
+Qed.
 
 (** Moore neighbors are a special case of general neighbors *)
 
@@ -1136,13 +1135,52 @@ Theorem von_neumann_is_l1_neighbors :
   forall p,
     von_neumann_neighbors p = l1_neighbors neighborhood_radius p.
 Proof.
-Admitted.
+  intros p.
+  unfold von_neumann_neighbors, l1_neighbors, general_neighbors.
+  f_equal.
+  apply functional_extensionality.
+  intros q.
+  unfold von_neumann_neighbor, lp_neighbor.
+  destruct p as [i j], q as [i' j'].
+  simpl.
+  f_equal.
+  assert (Hdi : (0 <= Z.abs (Z.of_nat i - Z.of_nat i'))%Z) by apply Z.abs_nonneg.
+  assert (Hdj : (0 <= Z.abs (Z.of_nat j - Z.of_nat j'))%Z) by apply Z.abs_nonneg.
+  destruct (Z.eqb_spec (Z.abs (Z.of_nat i - Z.of_nat i')) 0),
+           (Z.eqb_spec (Z.abs (Z.of_nat j - Z.of_nat j')) 0),
+           (Z.eqb_spec (Z.abs (Z.of_nat i - Z.of_nat i') + Z.abs (Z.of_nat j - Z.of_nat j')) 0);
+  subst; simpl; try reflexivity; try lia.
+Qed.
 
 Theorem neighbors_is_linf_neighbors :
   forall p,
     neighbors p = linf_neighbors neighborhood_radius p.
 Proof.
-Admitted.
+  intros p.
+  unfold neighbors, linf_neighbors, general_neighbors.
+  f_equal.
+  apply functional_extensionality.
+  intros q.
+  unfold moore_neighbor, lp_neighbor.
+  destruct p as [i j], q as [i' j'].
+  simpl.
+  set (di := Z.abs (Z.of_nat i - Z.of_nat i')).
+  set (dj := Z.abs (Z.of_nat j - Z.of_nat j')).
+  assert (Hdi : (0 <= di)%Z) by apply Z.abs_nonneg.
+  assert (Hdj : (0 <= dj)%Z) by apply Z.abs_nonneg.
+  destruct (Z.max_spec di dj) as [[Hle Hmax] | [Hle Hmax]];
+  rewrite Hmax; clear Hmax.
+  - destruct (Z.leb_spec dj (Z.of_nat neighborhood_radius)),
+             (Z.leb_spec di (Z.of_nat neighborhood_radius)),
+             (Z.eqb_spec di 0),
+             (Z.eqb_spec dj 0);
+    subst; simpl; try reflexivity; try lia.
+  - destruct (Z.leb_spec di (Z.of_nat neighborhood_radius)),
+             (Z.leb_spec dj (Z.of_nat neighborhood_radius)),
+             (Z.eqb_spec di 0),
+             (Z.eqb_spec dj 0);
+    subst; simpl; try reflexivity; try lia.
+Qed.
 
 (** Subset relationships between different Lp neighborhoods *)
 
@@ -1150,7 +1188,18 @@ Lemma l1_distance_le_linf_scaled :
   forall p q,
     (lp_distance L1_metric p q <= 2 * lp_distance Linf_metric p q)%Z.
 Proof.
-Admitted.
+  intros [i j] [i' j']; unfold lp_distance; simpl.
+  set (di := Z.abs (Z.of_nat i - Z.of_nat i')).
+  set (dj := Z.abs (Z.of_nat j - Z.of_nat j')).
+  assert (Hdi : (0 <= di)%Z) by apply Z.abs_nonneg.
+  assert (Hdj : (0 <= dj)%Z) by apply Z.abs_nonneg.
+  destruct (Z.max_spec di dj) as [[Hle Hmax] | [Hle Hmax]];
+  rewrite Hmax.
+  - assert (Hsum : (di + dj <= 2 * dj)%Z) by lia.
+    exact Hsum.
+  - assert (Hsum : (di + dj <= 2 * di)%Z) by lia.
+    exact Hsum.
+Qed.
 
 Lemma linf_distance_le_l1 :
   forall p q,
