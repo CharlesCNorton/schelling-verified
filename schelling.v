@@ -1359,17 +1359,12 @@ Lemma filter_NoDup : forall {A} (f : A -> bool) (l : list A),
   NoDup l -> NoDup (filter f l).
 Proof. intros. apply NoDup_filter. assumption. Qed.
 
-Lemma nodup_seq_0 : forall n, NoDup (seq 0 n).
-Proof.
-  intros n. apply seq_NoDup.
-Qed.
-
 Lemma nodup_map_pair_left : forall n i,
   NoDup (map (fun j => (i, j) : nat * nat) (seq 0 n)).
 Proof.
   intros. apply FinFun.Injective_map_NoDup.
   intros j1 j2 Heq. inversion Heq. reflexivity.
-  apply nodup_seq_0.
+  apply seq_NoDup.
 Qed.
 
 
@@ -2514,24 +2509,6 @@ Proof.
   repeat rewrite Nat.add_0_r; ring.
 Qed.
 
-Lemma get_cell_set_cell_eq :
-  forall g p c,
-    get_cell (set_cell g p c) p = c.
-Proof.
-  intros g p c.
-  apply get_set_same.
-Qed.
-
-Lemma get_cell_set_cell_neq :
-  forall g p q c,
-    p <> q ->
-    get_cell (set_cell g p c) q = get_cell g q.
-Proof.
-  intros g p q c Hneq.
-  apply get_set_other.
-  assumption.
-Qed.
-
 Lemma map_get_cell_extensional :
   forall g1 g2 ps,
     (forall p, In p ps -> get_cell g1 p = get_cell g2 p) ->
@@ -3054,12 +3031,6 @@ Proof.
   rewrite Heq in H. clear Heq.
   apply NoDup_cons_app_r in H.
   apply H. apply in_or_app. right. right. apply in_or_app. right. left. reflexivity.
-Qed.
-
-Lemma NoDup_app_cons_l : forall {A} (x : A) l1 l2,
-  NoDup (l1 ++ x :: l2) -> ~ In x l1.
-Proof.
-  intros A x l1 l2 H. apply (NoDup_cons_app x l1 l2). assumption.
 Qed.
 
 Lemma in_split_specific :
@@ -7406,7 +7377,7 @@ Proof.
               assumption.
 Qed.
 
-Theorem bounded_termination :
+Theorem fixpoint_decidability_within_bound :
   forall tau g,
     wellformed_grid g ->
     (exists n, (n < grid_configs_finite)%nat /\ is_fixpoint tau (Nat.iter n (step tau) g)) \/
@@ -7438,7 +7409,7 @@ Proof.
   - assumption.
 Qed.
 
-Theorem bounded_termination_v2 :
+Theorem fixpoint_or_progress_within_bound :
   forall tau g,
     wellformed_grid g ->
     (exists n, (n < grid_configs_finite)%nat /\ is_fixpoint tau (Nat.iter n (step tau) g)) \/
@@ -7446,7 +7417,7 @@ Theorem bounded_termination_v2 :
        Nat.iter i (step tau) g <> Nat.iter (S i) (step tau) g).
 Proof.
   intros tau g Hwf.
-  destruct (bounded_termination tau g Hwf) as [[n [Hn Hfix]] | Hall].
+  destruct (fixpoint_decidability_within_bound tau g Hwf) as [[n [Hn Hfix]] | Hall].
   - left.
     exists n.
     split; [assumption | assumption].
@@ -7458,14 +7429,14 @@ Proof.
       assumption.
 Qed.
 
-Corollary termination_dichotomy :
+Corollary fixpoint_reachability_dichotomy :
   forall tau g,
     wellformed_grid g ->
     (exists n, (n < grid_configs_finite)%nat /\ is_fixpoint tau (Nat.iter n (step tau) g)) \/
     (forall i, (i < grid_configs_finite)%nat -> ~ is_fixpoint tau (Nat.iter i (step tau) g)).
 Proof.
   intros tau g Hwf.
-  exact (bounded_termination tau g Hwf).
+  exact (fixpoint_decidability_within_bound tau g Hwf).
 Qed.
 
 Lemma succ_iter_unfold :
@@ -7488,14 +7459,14 @@ Proof.
   exact Hi.
 Qed.
 
-Corollary termination_summary :
+Corollary fixpoint_search_completeness :
   forall tau g,
     wellformed_grid g ->
     (exists n, (n < grid_configs_finite)%nat /\ is_fixpoint tau (Nat.iter n (step tau) g)) \/
     (forall i, (i < grid_configs_finite)%nat -> ~ is_fixpoint tau (Nat.iter i (step tau) g)).
 Proof.
   intros tau g Hwf.
-  exact (bounded_termination tau g Hwf).
+  exact (fixpoint_decidability_within_bound tau g Hwf).
 Qed.
 
 (* -----------------------------------------------------------------------------
