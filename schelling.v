@@ -26,22 +26,21 @@ Open Scope Z_scope.
    Global Parameters
    ----------------------------------------------------------------------------- *)
 
-(** We parameterize the grid size. All definitions and theorems below are
-    parametric in [grid_size]. *)
-
 Section SchellingModel.
 
+(** Grid dimension parameter. *)
 Variable grid_size : nat.
 Hypothesis grid_size_pos : (0 < grid_size)%nat.
 
+(** Moore/von Neumann neighborhood radius. *)
 Variable neighborhood_radius : nat.
 
+(** Abstract agent type with decidable equality. *)
 Variable Agent : Type.
 Variable agent_eqb : Agent -> Agent -> bool.
 Hypothesis agent_eqb_eq : forall a1 a2, agent_eqb a1 a2 = true <-> a1 = a2.
 
-(** Default tolerance: how many like-colored neighbors does an agent want? *)
-
+(** Default minimum count of same-type neighbors for happiness. *)
 Definition tolerance_default : nat := 3.
 
 End SchellingModel.
@@ -52,10 +51,12 @@ End SchellingModel.
 
 Module ConcreteAgents.
 
+(** Two-color agent type for basic segregation scenarios. *)
 Inductive Color : Type :=
 | Red
 | Blue.
 
+(** Boolean equality on colors. *)
 Definition color_eqb (c1 c2 : Color) : bool :=
   match c1, c2 with
   | Red, Red => true
@@ -63,6 +64,7 @@ Definition color_eqb (c1 c2 : Color) : bool :=
   | _, _ => false
   end.
 
+(** Correctness of color_eqb. *)
 Lemma color_eqb_eq : forall c1 c2, color_eqb c1 c2 = true <-> c1 = c2.
 Proof.
   intros c1 c2; split; intros H.
@@ -70,11 +72,13 @@ Proof.
   - subst; destruct c2; reflexivity.
 Qed.
 
+(** Three-group ethnicity type. *)
 Inductive Ethnicity : Type :=
 | GroupA
 | GroupB
 | GroupC.
 
+(** Boolean equality on ethnicities. *)
 Definition ethnicity_eqb (e1 e2 : Ethnicity) : bool :=
   match e1, e2 with
   | GroupA, GroupA => true
@@ -83,6 +87,7 @@ Definition ethnicity_eqb (e1 e2 : Ethnicity) : bool :=
   | _, _ => false
   end.
 
+(** Correctness of ethnicity_eqb. *)
 Lemma ethnicity_eqb_eq : forall e1 e2, ethnicity_eqb e1 e2 = true <-> e1 = e2.
 Proof.
   intros e1 e2; split; intros H.
@@ -90,11 +95,13 @@ Proof.
   - subst; destruct e2; reflexivity.
 Qed.
 
+(** Three-level income stratification. *)
 Inductive Income : Type :=
 | Low
 | Middle
 | High.
 
+(** Boolean equality on income levels. *)
 Definition income_eqb (i1 i2 : Income) : bool :=
   match i1, i2 with
   | Low, Low => true
@@ -103,6 +110,7 @@ Definition income_eqb (i1 i2 : Income) : bool :=
   | _, _ => false
   end.
 
+(** Correctness of income_eqb. *)
 Lemma income_eqb_eq : forall i1 i2, income_eqb i1 i2 = true <-> i1 = i2.
 Proof.
   intros i1 i2; split; intros H.
@@ -127,32 +135,22 @@ Hypothesis agent_eqb_eq : forall a1 a2, agent_eqb a1 a2 = true <-> a1 = a2.
    Basic Types: Cells, Positions, and Grids
    ----------------------------------------------------------------------------- *)
 
+(** Grid cell: empty or occupied by an agent. *)
 Inductive Cell : Type :=
 | Empty
 | Occupied (a : Agent).
 
+(** Grid position as (row, column) pair. *)
 Definition Pos := (nat * nat)%type.
 
-(** Grids are *total* maps from positions to cells.  We only ever look at
-    positions inside the fixed [grid_size × grid_size] window, but using
-    a total function simplifies reasoning about updates. *)
-
+(** Grid as total function from positions to cells. *)
 Definition Grid := Pos -> Cell.
-
-(* ============================================================================
-   Implicit Types - Variable Naming Conventions
-   ============================================================================ *)
-
-(* Note: Implicit Types are NOT used in this development due to extensive
-   variable name reuse across different types (e.g., 'g' for both Grid and
-   position bijections, 'p' for both Pos and periods, 'a' and 'b' for both
-   Agent and integers). Notations provide sufficient abbreviation without
-   type conflicts. *)
 
 (* -----------------------------------------------------------------------------
    Equality on Agents and Positions
    ----------------------------------------------------------------------------- *)
 
+(** Reflexivity of agent_eqb. *)
 Lemma agent_eqb_refl : forall a, agent_eqb a a = true.
 Proof.
   intros a.
@@ -160,6 +158,7 @@ Proof.
   reflexivity.
 Qed.
 
+(** Inequality characterization for agents. *)
 Lemma agent_eqb_neq : forall a1 a2, a1 <> a2 <-> agent_eqb a1 a2 = false.
 Proof.
   intros a1 a2; split.
@@ -170,6 +169,7 @@ Proof.
   - intros Hfalse Heq; subst; rewrite agent_eqb_refl in Hfalse; discriminate.
 Qed.
 
+(** Decidable equality on agents. *)
 Lemma agent_eq_dec : forall a1 a2 : Agent, {a1 = a2} + {a1 <> a2}.
 Proof.
   intros a1 a2.
@@ -178,17 +178,20 @@ Proof.
   - right; apply agent_eqb_neq; assumption.
 Defined.
 
+(** Boolean equality on positions. *)
 Definition pos_eqb (p1 p2 : Pos) : bool :=
   let '(i1, j1) := p1 in
   let '(i2, j2) := p2 in
   Nat.eqb i1 i2 && Nat.eqb j1 j2.
 
+(** Reflexivity of pos_eqb. *)
 Lemma pos_eqb_refl : forall p, pos_eqb p p = true.
 Proof.
   intros [i j]; unfold pos_eqb; simpl.
   rewrite !Nat.eqb_refl; reflexivity.
 Qed.
 
+(** Soundness of pos_eqb. *)
 Lemma pos_eqb_eq :
   forall p1 p2, pos_eqb p1 p2 = true -> p1 = p2.
 Proof.
@@ -200,6 +203,7 @@ Proof.
   subst; reflexivity.
 Qed.
 
+(** Completeness of pos_eqb for inequality. *)
 Lemma pos_eqb_neq :
   forall p1 p2, p1 <> p2 -> pos_eqb p1 p2 = false.
 Proof.
@@ -215,6 +219,7 @@ Proof.
   - reflexivity.
 Qed.
 
+(** Decidable equality on positions. *)
 Lemma pos_eq_dec : forall p1 p2 : Pos, {p1 = p2} + {p1 <> p2}.
 Proof.
   intros p1 p2.
@@ -223,12 +228,15 @@ Proof.
   - right; intros Hcontra; subst; rewrite pos_eqb_refl in Heq; discriminate.
 Defined.
 
+(** Position within grid bounds. *)
 Definition in_bounds (p : Pos) : Prop :=
   let '(i, j) := p in (i < grid_size)%nat /\ (j < grid_size)%nat.
 
+(** Boolean version of in_bounds. *)
 Definition in_bounds_b (p : Pos) : bool :=
   let '(i, j) := p in Nat.ltb i grid_size && Nat.ltb j grid_size.
 
+(** Decidability of in_bounds. *)
 Lemma in_bounds_dec : forall p, {in_bounds p} + {~ in_bounds p}.
 Proof.
   intros [i j]; unfold in_bounds; simpl.
@@ -239,6 +247,7 @@ Proof.
   - right; intros [Hi' _]; apply Nat.ltb_lt in Hi'; rewrite Hi' in Hi; discriminate.
 Defined.
 
+(** Equivalence of propositional and boolean bounds checks. *)
 Lemma in_bounds_iff : forall p, in_bounds p <-> in_bounds_b p = true.
 Proof.
   intros [i j]; unfold in_bounds, in_bounds_b; simpl; split.
@@ -252,11 +261,14 @@ Qed.
    Grid Access and Update
    ----------------------------------------------------------------------------- *)
 
+(** Read cell at position p. *)
 Definition get_cell (g : Grid) (p : Pos) : Cell := g p.
 
+(** Update cell at position p to c. *)
 Definition set_cell (g : Grid) (p : Pos) (c : Cell) : Grid :=
   fun q => if pos_eqb q p then c else g q.
 
+(** Reading after writing at same position returns written value. *)
 Lemma get_set_same :
   forall g p c, get_cell (set_cell g p c) p = c.
 Proof.
@@ -265,6 +277,7 @@ Proof.
   reflexivity.
 Qed.
 
+(** Reading after writing at different position returns original value. *)
 Lemma get_set_other :
   forall g p q c,
     p <> q ->
@@ -276,38 +289,18 @@ Proof.
   rewrite pos_eqb_neq; [reflexivity|assumption].
 Qed.
 
-(* ============================================================================
-   Notations - Compact Syntax for Common Patterns
-   ============================================================================ *)
+(* -----------------------------------------------------------------------------
+   Notations
+   ----------------------------------------------------------------------------- *)
 
-(* Grid operations *)
 Notation "g [ p ]" := (get_cell g p) (at level 50, left associativity).
 Notation "g [ p <- c ]" := (set_cell g p c) (at level 50, left associativity).
-
-(* Bounds checking *)
 Notation "p ∈ ℬ" := (in_bounds p) (at level 70).
 Notation "p ∉ ℬ" := (~ in_bounds p) (at level 70).
-
-(** Usage Examples:
-    Before: get_cell g p = Occupied a
-    After:  g[p] = Occupied a
-
-    Before: set_cell (set_cell g p Empty) q (Occupied a)
-    After:  (g[p <- Empty])[q <- Occupied a]
-
-    Before: forall g, wellformed_grid g -> ...
-    After:  forall g, ⊢ g -> ...
-
-    Before: in_bounds p /\ in_bounds q
-    After:  p ∈ ℬ /\ q ∈ ℬ
-*)
 
 (* -----------------------------------------------------------------------------
    Proof Automation Tactics
    ----------------------------------------------------------------------------- *)
-
-(** Custom tactics to automate common proof patterns. These are placed here
-    after the basic grid lemmas so they can reference get_set_same/other. *)
 
 Ltac solve_get_set :=
   repeat (rewrite get_set_same ||
@@ -338,6 +331,7 @@ Ltac break_match :=
   | H: context[match ?x with _ => _ end] |- _ => destruct x eqn:?
   end.
 
+(** Two writes to same position: second write overwrites first. *)
 Corollary set_cell_twice_same_pos :
   forall g p c1 c2 q,
     get_cell (set_cell (set_cell g p c1) p c2) q = get_cell (set_cell g p c2) q.
@@ -347,6 +341,7 @@ Proof.
   destruct (pos_eqb q p); reflexivity.
 Qed.
 
+(** Writes to distinct positions commute. *)
 Corollary set_cell_commutes :
   forall g p1 p2 c1 c2 q,
     p1 <> p2 ->
@@ -363,16 +358,17 @@ Proof.
   - reflexivity.
 Qed.
 
-(** A completely empty grid. *)
-
+(** Grid with all cells empty. *)
 Definition empty_grid : Grid := fun _ => Empty.
 
+(** All cells of empty_grid are Empty. *)
 Corollary empty_grid_get_cell :
   forall p, get_cell empty_grid p = Empty.
 Proof.
   intros p; reflexivity.
 Qed.
 
+(** Writing Empty to empty grid is identity. *)
 Corollary set_empty_noop :
   forall p q,
     get_cell (set_cell empty_grid p Empty) q = get_cell empty_grid q.
@@ -382,22 +378,27 @@ Proof.
   destruct (pos_eqb q p); reflexivity.
 Qed.
 
+(** Grid wellformedness: out-of-bounds cells are empty. *)
 Definition wellformed_grid (g : Grid) : Prop :=
   forall i j, ((i >= grid_size)%nat \/ (j >= grid_size)%nat) -> get_cell g (i, j) = Empty.
 
+(** Wellformed grid as dependent record. *)
 Record WFGrid : Type := mkWFGrid {
   wf_grid :> Grid;
   wf_proof : wellformed_grid wf_grid
 }.
 
+(** empty_grid is wellformed. *)
 Lemma empty_grid_wellformed : wellformed_grid empty_grid.
 Proof.
   intros i j _; reflexivity.
 Qed.
 
+(** Wellformed empty grid as WFGrid. *)
 Definition empty_wfgrid : WFGrid :=
   mkWFGrid empty_grid empty_grid_wellformed.
 
+(** Out-of-bounds access on wellformed grid yields Empty. *)
 Lemma wellformed_grid_get_cell :
   forall g i j,
     wellformed_grid g ->
@@ -407,6 +408,7 @@ Proof.
   intros g i j Hwf Hout; apply Hwf; assumption.
 Qed.
 
+(** Writing to in-bounds position preserves wellformedness. *)
 Lemma set_cell_preserves_wellformed :
   forall g p c,
     wellformed_grid g ->
@@ -422,6 +424,7 @@ Proof.
   - unfold get_cell in Hwf; apply Hwf; assumption.
 Qed.
 
+(** Writing Empty preserves wellformedness. *)
 Lemma set_cell_empty_preserves_wellformed :
   forall g p,
     wellformed_grid g ->
@@ -435,6 +438,7 @@ Proof.
   - unfold get_cell in Hwf; apply Hwf; assumption.
 Qed.
 
+(** Two writes preserve wellformedness if second is in-bounds. *)
 Lemma set_cell_twice_preserves_wellformed :
   forall g p1 p2 c,
     wellformed_grid g ->
@@ -450,11 +454,13 @@ Qed.
    Enumeration of Finite Positions
    ----------------------------------------------------------------------------- *)
 
+(** Lexicographic enumeration of all grid_size × grid_size positions. *)
 Definition all_positions_grid : list Pos :=
   flat_map
     (fun i => map (fun j => (i, j)) (seq 0 grid_size))
     (seq 0 grid_size).
 
+(** All positions in all_positions_grid are in bounds. *)
 Lemma all_positions_in_bounds :
   forall i j,
     In (i, j) all_positions_grid ->
@@ -474,6 +480,7 @@ Proof.
   split; assumption.
 Qed.
 
+(** All in-bounds positions are in all_positions_grid. *)
 Lemma all_positions_coverage :
   forall i j,
     (i < grid_size)%nat ->
@@ -490,12 +497,14 @@ Proof.
     apply in_seq; split; [lia|assumption].
 Qed.
 
+(** Length of flat_map over cons. *)
 Lemma flat_map_cons_length {A B : Type} (f : A -> list B) (x : A) (xs : list A) :
   length (flat_map f (x :: xs)) = (length (f x) + length (flat_map f xs))%nat.
 Proof.
   simpl. rewrite app_length. reflexivity.
 Qed.
 
+(** Auxiliary lemma for computing all_positions_grid length. *)
 Lemma flat_map_row_length_aux :
   forall (L : list nat) (n : nat),
     length L = n ->
@@ -509,6 +518,7 @@ Proof.
     rewrite IH. simpl. lia.
 Qed.
 
+(** all_positions_grid has exactly grid_size² elements. *)
 Lemma all_positions_length :
   length all_positions_grid = (grid_size * grid_size)%nat.
 Proof.
@@ -517,6 +527,7 @@ Proof.
   apply seq_length.
 Qed.
 
+(** all_positions_grid is non-empty. *)
 Corollary all_positions_nonempty :
   all_positions_grid <> [].
 Proof.
@@ -527,6 +538,7 @@ Proof.
   lia.
 Qed.
 
+(** in_bounds positions are in all_positions_grid. *)
 Corollary all_positions_complete :
   forall p,
     in_bounds p ->
@@ -535,6 +547,7 @@ Proof.
   intros [i j] [Hi Hj]; apply all_positions_coverage; assumption.
 Qed.
 
+(** Positions in all_positions_grid are in bounds. *)
 Corollary all_positions_only_in_bounds :
   forall p,
     In p all_positions_grid ->
@@ -544,18 +557,21 @@ Proof.
   destruct Hin as [Hi Hj]; split; assumption.
 Qed.
 
+(** grid_size is positive. *)
 Lemma grid_size_positive :
   (0 < grid_size)%nat.
 Proof.
   exact grid_size_pos.
 Qed.
 
+(** Grid area is positive. *)
 Lemma grid_area_positive :
   (0 < grid_size * grid_size)%nat.
 Proof.
   apply Nat.mul_pos_pos; exact grid_size_pos.
 Qed.
 
+(** all_positions_grid is non-empty. *)
 Lemma all_positions_length_positive :
   (0 < length all_positions_grid)%nat.
 Proof.
@@ -563,6 +579,7 @@ Proof.
   apply grid_area_positive.
 Qed.
 
+(** Existence of at least one in-bounds position. *)
 Lemma exists_valid_position :
   exists p, in_bounds p.
 Proof.
@@ -571,6 +588,7 @@ Proof.
   split; exact grid_size_pos.
 Qed.
 
+(** Existence of at least one position in all_positions_grid. *)
 Lemma exists_position_in_grid :
   exists p, In p all_positions_grid.
 Proof.
@@ -584,6 +602,7 @@ Qed.
    Neighborhood (Moore with parametric radius)
    ----------------------------------------------------------------------------- *)
 
+(** Moore neighborhood predicate: max(|i-i'|, |j-j'|) ≤ radius and (i,j) ≠ (i',j'). *)
 Definition moore_neighbor (p q : Pos) : bool :=
   let '(i, j)   := p in
   let '(i', j') := q in
@@ -593,9 +612,11 @@ Definition moore_neighbor (p q : Pos) : bool :=
   Z.leb dj (Z.of_nat neighborhood_radius) &&
   negb (Z.eqb di 0 && Z.eqb dj 0).
 
+(** Neighbors of p as filtered list. *)
 Definition neighbors (p : Pos) : list Pos :=
   filter (moore_neighbor p) all_positions_grid.
 
+(** Position is not its own Moore neighbor. *)
 Lemma moore_neighbor_irreflexive :
   forall p, moore_neighbor p p = false.
 Proof.
@@ -605,6 +626,7 @@ Proof.
   simpl. destruct (Z.of_nat neighborhood_radius); reflexivity.
 Qed.
 
+(** Position is not in its own neighbor set. *)
 Lemma neighbors_no_self :
   forall p, ~ In p (neighbors p).
 Proof.
@@ -616,6 +638,7 @@ Proof.
   discriminate.
 Qed.
 
+(** Absolute value symmetric in subtraction. *)
 Lemma Z_abs_symmetric : forall a b, Z.abs (a - b) = Z.abs (b - a).
 Proof.
   intros a b.
@@ -623,6 +646,7 @@ Proof.
   rewrite H; apply Z.abs_opp.
 Qed.
 
+(** Moore neighborhood relation is symmetric. *)
 Corollary neighbors_symmetric :
   forall p q,
     moore_neighbor p q = true ->
@@ -645,11 +669,7 @@ Qed.
    von Neumann Neighborhood (4-connected)
    ----------------------------------------------------------------------------- *)
 
-(** The von Neumann neighborhood includes only the 4 cardinal directions
-    (up, down, left, right), as opposed to Moore which includes all 8
-    surrounding cells. This is often used in models where diagonal
-    connections are not considered. *)
-
+(** von Neumann neighborhood predicate: |i-i'| + |j-j'| ≤ radius (L1 metric). *)
 Definition von_neumann_neighbor (p q : Pos) : bool :=
   let '(i, j)   := p in
   let '(i', j') := q in
@@ -658,9 +678,11 @@ Definition von_neumann_neighbor (p q : Pos) : bool :=
   Z.leb (di + dj) (Z.of_nat neighborhood_radius) &&
   negb (Z.eqb di 0 && Z.eqb dj 0).
 
+(** von Neumann neighbors of p as filtered list. *)
 Definition von_neumann_neighbors (p : Pos) : list Pos :=
   filter (von_neumann_neighbor p) all_positions_grid.
 
+(** Position is not its own von Neumann neighbor. *)
 Lemma von_neumann_neighbor_irreflexive :
   forall p, von_neumann_neighbor p p = false.
 Proof.
@@ -670,6 +692,7 @@ Proof.
   simpl. destruct (Z.of_nat neighborhood_radius); reflexivity.
 Qed.
 
+(** Position is not in its own von Neumann neighbor set. *)
 Lemma von_neumann_neighbors_no_self :
   forall p, ~ In p (von_neumann_neighbors p).
 Proof.
@@ -681,6 +704,7 @@ Proof.
   discriminate.
 Qed.
 
+(** von Neumann neighborhood relation is symmetric. *)
 Lemma von_neumann_neighbor_symmetric :
   forall p q,
     von_neumann_neighbor p q = true ->
@@ -703,6 +727,7 @@ Proof.
     + right; apply Z.eqb_neq in H2; apply Z.eqb_neq; lia.
 Qed.
 
+(** von Neumann neighbors are in bounds. *)
 Lemma von_neumann_neighbors_in_bounds :
   forall p q,
     In q (von_neumann_neighbors p) ->
@@ -715,6 +740,7 @@ Proof.
   apply all_positions_only_in_bounds; assumption.
 Qed.
 
+(** von Neumann neighbors are Moore neighbors (L1 ⊆ L∞). *)
 Lemma von_neumann_subset_moore :
   forall p q,
     von_neumann_neighbor p q = true ->
@@ -738,6 +764,7 @@ Proof.
   - assumption.
 Qed.
 
+(** von Neumann neighbor set is subset of Moore neighbor set. *)
 Lemma von_neumann_neighbors_subset_moore :
   forall p,
     incl (von_neumann_neighbors p) (neighbors p).
@@ -751,6 +778,7 @@ Proof.
   - apply von_neumann_subset_moore; assumption.
 Qed.
 
+(** von Neumann neighbor count bounded by grid area. *)
 Lemma von_neumann_neighbors_length_bounded :
   forall p,
     (length (von_neumann_neighbors p) <= grid_size * grid_size)%nat.
@@ -766,27 +794,25 @@ Qed.
    Generalized Neighborhood Structure
    ----------------------------------------------------------------------------- *)
 
-(** A general neighborhood structure is defined by a predicate on position pairs.
-    We prove that Moore and von Neumann are special cases of this general framework. *)
-
+(** Neighborhood predicate type. *)
 Definition NeighborPredicate := Pos -> Pos -> bool.
 
-(** A valid neighborhood predicate must satisfy: irreflexivity and symmetry *)
-
+(** Valid neighborhood predicate: irreflexive and symmetric. *)
 Definition valid_neighbor_pred (pred : NeighborPredicate) : Prop :=
   (forall p, pred p p = false) /\
   (forall p q, pred p q = true -> pred q p = true).
 
+(** General neighbors using arbitrary predicate. *)
 Definition general_neighbors (pred : NeighborPredicate) (p : Pos) : list Pos :=
   filter (pred p) all_positions_grid.
 
-(** Minkowski distance with parameter p for Lp norms *)
-
+(** Lp metric type. *)
 Inductive LpMetric : Type :=
   | L1_metric    (* Manhattan distance, von Neumann *)
   | L2_metric    (* Euclidean distance *)
   | Linf_metric. (* Chebyshev distance, Moore *)
 
+(** Lp distance between positions. *)
 Definition lp_distance (metric : LpMetric) (p q : Pos) : Z :=
   let '(i, j)   := p in
   let '(i', j') := q in
@@ -794,17 +820,17 @@ Definition lp_distance (metric : LpMetric) (p q : Pos) : Z :=
   let dj := Z.abs (Z.of_nat j - Z.of_nat j') in
   match metric with
   | L1_metric => di + dj
-  | L2_metric => di * di + dj * dj  (* squared Euclidean for simplicity *)
+  | L2_metric => di * di + dj * dj
   | Linf_metric => Z.max di dj
   end.
 
+(** Lp neighbor predicate with given radius. *)
 Definition lp_neighbor (metric : LpMetric) (radius : nat) (p q : Pos) : bool :=
   let dist := lp_distance metric p q in
   Z.leb dist (Z.of_nat radius) &&
   negb (Z.eqb dist 0).
 
-(** Micro lemmas for max distance equivalence *)
-
+(** max(a,b) = 0 implies a = 0 and b = 0 for non-negative a, b. *)
 Lemma max_both_zero_implies_both_zero :
   forall a b : Z,
     Z.max a b = 0%Z ->
@@ -816,6 +842,7 @@ Proof.
   destruct (Z.max_spec a b) as [[Hle Heq] | [Hle Heq]]; rewrite Heq in Hmax; lia.
 Qed.
 
+(** (a=0 ∧ b=0) ↔ max(a,b)=0 for non-negative a, b. *)
 Lemma max_zero_iff_both_zero :
   forall a b : Z,
     (0 <= a)%Z ->
@@ -834,6 +861,7 @@ Proof.
     split; apply Z.eqb_eq; assumption.
 Qed.
 
+(** Negation distributes over max-zero equivalence. *)
 Lemma negb_max_zero_iff_negb_both_zero :
   forall a b : Z,
     (0 <= a)%Z ->
@@ -858,6 +886,7 @@ Proof.
     try contradiction; try lia.
 Qed.
 
+(** Negation distributes over sum-zero equivalence for non-negative a, b. *)
 Lemma negb_sum_zero_iff_negb_both_zero :
   forall a b : Z,
     (0 <= a)%Z ->
@@ -880,6 +909,7 @@ Proof.
     lia.
 Qed.
 
+(** max(a,b) = a when b ≤ a. *)
 Lemma max_eq_left_ge :
   forall a b : Z,
     (b <= a)%Z ->
@@ -890,6 +920,7 @@ Proof.
   lia.
 Qed.
 
+(** max(a,b) = b when a ≤ b. *)
 Lemma max_eq_right_ge :
   forall a b : Z,
     (a <= b)%Z ->
@@ -900,8 +931,7 @@ Proof.
   lia.
 Qed.
 
-(** Moore is Linf with given radius *)
-
+(** Moore neighborhood equals L∞ metric with neighborhood_radius. *)
 Lemma moore_is_linf :
   forall p q,
     moore_neighbor p q = lp_neighbor Linf_metric neighborhood_radius p q.
@@ -954,8 +984,7 @@ Proof.
     rewrite Hmax; simpl. reflexivity.
 Qed.
 
-(** von Neumann is L1 with given radius *)
-
+(** von Neumann neighborhood equals L1 metric with neighborhood_radius. *)
 Lemma von_neumann_is_l1 :
   forall p q,
     von_neumann_neighbor p q = lp_neighbor L1_metric neighborhood_radius p q.
@@ -965,8 +994,7 @@ Proof.
   apply negb_sum_zero_iff_negb_both_zero; apply Z.abs_nonneg.
 Qed.
 
-(** Micro lemmas for Lp distance properties *)
-
+(** Lp distance is non-negative. *)
 Lemma lp_distance_nonneg :
   forall metric p q,
     (0 <= lp_distance metric p q)%Z.
@@ -990,6 +1018,7 @@ Proof.
     rewrite Hm; assumption.
 Qed.
 
+(** Lp distance is zero iff positions are equal. *)
 Lemma lp_distance_zero_iff_equal :
   forall metric p q,
     lp_distance metric p q = 0%Z <-> p = q.
@@ -1033,6 +1062,7 @@ Proof.
     simpl; try (rewrite Z.max_id; reflexivity); reflexivity.
 Qed.
 
+(** Lp distance is symmetric. *)
 Lemma lp_distance_symmetric :
   forall metric p q,
     lp_distance metric p q = lp_distance metric q p.
@@ -1048,6 +1078,7 @@ Proof.
   - f_equal; apply Z_abs_symmetric.
 Qed.
 
+(** Lp neighbor is irreflexive. *)
 Lemma lp_neighbor_irreflexive :
   forall metric radius p,
     lp_neighbor metric radius p p = false.
@@ -1061,6 +1092,7 @@ Proof.
   destruct (Z.of_nat radius); reflexivity.
 Qed.
 
+(** Lp neighbor is symmetric. *)
 Lemma lp_neighbor_symmetric :
   forall metric radius p q,
     lp_neighbor metric radius p q = true ->
@@ -1072,6 +1104,7 @@ Proof.
   assumption.
 Qed.
 
+(** Lp neighbor satisfies valid neighbor predicate. *)
 Lemma lp_neighbor_valid :
   forall metric radius,
     valid_neighbor_pred (lp_neighbor metric radius).
@@ -1081,6 +1114,7 @@ Proof.
   - intros p q; apply lp_neighbor_symmetric.
 Qed.
 
+(** Moore neighbor satisfies valid neighbor predicate. *)
 Theorem moore_neighbor_valid :
   valid_neighbor_pred moore_neighbor.
 Proof.
@@ -1089,6 +1123,7 @@ Proof.
   - intros p q; apply neighbors_symmetric.
 Qed.
 
+(** von Neumann neighbor satisfies valid neighbor predicate. *)
 Theorem von_neumann_neighbor_valid :
   valid_neighbor_pred von_neumann_neighbor.
 Proof.
@@ -1097,8 +1132,7 @@ Proof.
   - intros p q; apply von_neumann_neighbor_symmetric.
 Qed.
 
-(** General neighbors preserve validity properties *)
-
+(** General neighbors exclude the position itself. *)
 Lemma general_neighbors_no_self :
   forall pred p,
     valid_neighbor_pred pred ->
@@ -1112,6 +1146,7 @@ Proof.
   discriminate.
 Qed.
 
+(** General neighbors are in bounds. *)
 Lemma general_neighbors_in_bounds :
   forall pred p q,
     In q (general_neighbors pred p) ->
@@ -1124,6 +1159,7 @@ Proof.
   apply all_positions_only_in_bounds; assumption.
 Qed.
 
+(** General neighbor relation is symmetric on membership. *)
 Lemma general_neighbors_symmetric_membership :
   forall pred p q,
     valid_neighbor_pred pred ->
@@ -1140,8 +1176,7 @@ Proof.
   - apply Hsym; assumption.
 Qed.
 
-(** Moore neighbors are a special case of general neighbors *)
-
+(** neighbors equals general_neighbors with moore_neighbor. *)
 Lemma neighbors_eq_general_moore :
   forall p,
     neighbors p = general_neighbors moore_neighbor p.
@@ -1149,6 +1184,7 @@ Proof.
   intros p; unfold neighbors, general_neighbors; reflexivity.
 Qed.
 
+(** von_neumann_neighbors equals general_neighbors with von_neumann_neighbor. *)
 Lemma von_neumann_neighbors_eq_general :
   forall p,
     von_neumann_neighbors p = general_neighbors von_neumann_neighbor p.
@@ -1156,17 +1192,19 @@ Proof.
   intros p; unfold von_neumann_neighbors, general_neighbors; reflexivity.
 Qed.
 
-(** Lp neighbors with specific metrics *)
-
+(** L1 neighbors with given radius. *)
 Definition l1_neighbors (radius : nat) (p : Pos) : list Pos :=
   general_neighbors (lp_neighbor L1_metric radius) p.
 
+(** L2 neighbors with given radius. *)
 Definition l2_neighbors (radius : nat) (p : Pos) : list Pos :=
   general_neighbors (lp_neighbor L2_metric radius) p.
 
+(** L∞ neighbors with given radius. *)
 Definition linf_neighbors (radius : nat) (p : Pos) : list Pos :=
   general_neighbors (lp_neighbor Linf_metric radius) p.
 
+(** von Neumann neighbors equal L1 neighbors with neighborhood_radius. *)
 Theorem von_neumann_is_l1_neighbors :
   forall p,
     von_neumann_neighbors p = l1_neighbors neighborhood_radius p.
@@ -1188,6 +1226,7 @@ Proof.
   subst; simpl; try reflexivity; try lia.
 Qed.
 
+(** Moore neighbors equal L∞ neighbors with neighborhood_radius. *)
 Theorem neighbors_is_linf_neighbors :
   forall p,
     neighbors p = linf_neighbors neighborhood_radius p.
@@ -1218,8 +1257,7 @@ Proof.
     subst; simpl; try reflexivity; try lia.
 Qed.
 
-(** Subset relationships between different Lp neighborhoods *)
-
+(** L1 distance is at most twice L∞ distance. *)
 Lemma l1_distance_le_linf_scaled :
   forall p q,
     (lp_distance L1_metric p q <= 2 * lp_distance Linf_metric p q)%Z.
@@ -1237,6 +1275,7 @@ Proof.
     exact Hsum.
 Qed.
 
+(** L∞ distance is at most L1 distance. *)
 Lemma linf_distance_le_l1 :
   forall p q,
     (lp_distance Linf_metric p q <= lp_distance L1_metric p q)%Z.
@@ -1247,8 +1286,7 @@ Proof.
   rewrite Hmax; lia.
 Qed.
 
-(** General neighbor count bounds *)
-
+(** General neighbor count bounded by grid area. *)
 Lemma general_neighbors_length_bounded :
   forall pred p,
     (length (general_neighbors pred p) <= grid_size * grid_size)%nat.
@@ -1260,8 +1298,7 @@ Proof.
   exact H.
 Qed.
 
-(** Extensionality principle for neighborhoods *)
-
+(** Extensionality for general neighbors. *)
 Lemma general_neighbors_extensional :
   forall pred1 pred2 p,
     (forall q, pred1 p q = pred2 p q) ->
@@ -1274,8 +1311,7 @@ Proof.
   apply Heq.
 Qed.
 
-(** Predicate refinement: if pred1 implies pred2, neighborhoods shrink *)
-
+(** Monotonicity of general neighbors under predicate implication. *)
 Lemma general_neighbors_monotone :
   forall pred1 pred2 p,
     (forall q, pred1 p q = true -> pred2 p q = true) ->
@@ -1290,11 +1326,11 @@ Proof.
   - apply Himpl; assumption.
 Qed.
 
-(** Custom neighborhood: user-defined predicate *)
-
+(** Custom neighbors with user-defined predicate. *)
 Definition custom_neighbors (pred : NeighborPredicate) (p : Pos) : list Pos :=
   general_neighbors pred p.
 
+(** custom_neighbors equals general_neighbors. *)
 Lemma custom_neighbors_correct :
   forall pred p,
     valid_neighbor_pred pred ->
@@ -1303,34 +1339,38 @@ Proof.
   intros pred p Hvalid; reflexivity.
 Qed.
 
-(* Helper lemma army for von_neumann_radius_1_at_most_4 *)
-
+(** Absolute value is non-negative. *)
 Lemma Z_abs_nonneg_simple : forall z : Z, (0 <= Z.abs z)%Z.
 Proof.
   intros z. apply Z.abs_nonneg.
 Qed.
 
+(** |0| = 0. *)
 Lemma Z_abs_0_is_0 : Z.abs 0 = 0%Z.
 Proof.
   reflexivity.
 Qed.
 
+(** |1| = 1. *)
 Lemma Z_abs_1_is_1 : Z.abs 1 = 1%Z.
 Proof.
   reflexivity.
 Qed.
 
+(** |-1| = 1. *)
 Lemma Z_abs_neg1_is_1 : Z.abs (-1) = 1%Z.
 Proof.
   reflexivity.
 Qed.
 
+(** Sum ≤ 1 implies components ≤ 1 for non-negative a, b. *)
 Lemma Z_sum_le_1_components_le_1 : forall a b : Z,
   (0 <= a)%Z -> (0 <= b)%Z -> (a + b <= 1)%Z -> (a <= 1 /\ b <= 1)%Z.
 Proof.
   intros a b Ha Hb Hsum. lia.
 Qed.
 
+(** |a| + |b| = 0 implies a = 0 and b = 0. *)
 Lemma Z_abs_sum_0_both_0 : forall a b : Z,
   (Z.abs a + Z.abs b = 0)%Z -> a = 0%Z /\ b = 0%Z.
 Proof.
@@ -1340,6 +1380,7 @@ Proof.
   split; apply Z.abs_0_iff; assumption.
 Qed.
 
+(** |a| + |b| = 1 implies one is 0 and other is 1. *)
 Lemma Z_abs_sum_1_cases : forall a b : Z,
   (Z.abs a + Z.abs b = 1)%Z ->
   (Z.abs a = 0 /\ Z.abs b = 1) \/ (Z.abs a = 1 /\ Z.abs b = 0)%Z.
@@ -1350,51 +1391,62 @@ Proof.
   lia.
 Qed.
 
+(** |z| = 1 implies z = 1 or z = -1. *)
 Lemma Z_abs_1_means_1_or_neg1 : forall z : Z,
   Z.abs z = 1%Z -> z = 1%Z \/ z = (-1)%Z.
 Proof.
   intros z H. lia.
 Qed.
 
+(** Integer representation difference 0 implies natural number equality. *)
 Lemma Z_of_nat_diff_0 : forall n m : nat,
   (Z.of_nat n - Z.of_nat m = 0)%Z -> n = m.
 Proof.
   intros n m H. lia.
 Qed.
 
+(** Integer representation difference 1 implies successor relation. *)
 Lemma Z_of_nat_diff_1_succ : forall n m : nat,
   (Z.of_nat m - Z.of_nat n = 1)%Z -> m = S n.
 Proof.
   intros n m H. lia.
 Qed.
 
+(** Integer representation difference -1 implies predecessor relation. *)
 Lemma Z_of_nat_diff_neg1_pred : forall n m : nat,
   (Z.of_nat n - Z.of_nat m = 1)%Z -> n = S m.
 Proof.
   intros n m H. lia.
 Qed.
 
+(** n - 0 = n for natural numbers. *)
 Lemma nat_minus_0_l : forall n : nat, (n - 0 = n)%nat.
 Proof. intros. lia. Qed.
 
+(** Every natural number is either 0 or a successor. *)
 Lemma S_pred_or_0 : forall n : nat, (n = 0 \/ exists m, n = S m)%nat.
 Proof. intros. destruct n; [left|right; exists n]; auto. Qed.
 
+(** Membership in 4-element list. *)
 Lemma in_4_list : forall {A} (x a b c d : A),
   In x [a; b; c; d] <-> (x = a \/ x = b \/ x = c \/ x = d).
 Proof. intros. simpl. intuition. Qed.
 
+(** Length of 4-element list is 4. *)
 Lemma length_4_list : forall {A} (a b c d : A), length [a; b; c; d] = 4%nat.
 Proof. intros. reflexivity. Qed.
 
+(** Inclusion and NoDup imply length bound. *)
 Lemma incl_length_le : forall {A} (l1 l2 : list A),
   NoDup l1 -> incl l1 l2 -> (length l1 <= length l2)%nat.
 Proof. intros. apply NoDup_incl_length; assumption. Qed.
 
+(** Filtering preserves NoDup. *)
 Lemma filter_NoDup : forall {A} (f : A -> bool) (l : list A),
   NoDup l -> NoDup (filter f l).
 Proof. intros. apply NoDup_filter. assumption. Qed.
 
+(** Mapping (i,·) over sequence yields NoDup. *)
 Lemma nodup_map_pair_left : forall n i,
   NoDup (map (fun j => (i, j) : nat * nat) (seq 0 n)).
 Proof.
@@ -1403,8 +1455,7 @@ Proof.
   apply seq_NoDup.
 Qed.
 
-
-
+(** von Neumann predicate with radius 1 implies L1 distance ≤ 1 and distinct positions. *)
 Lemma vn_pred_true_means_dist_1 : forall i j i' j',
   (Z.leb (Z.abs (Z.of_nat i - Z.of_nat i') + Z.abs (Z.of_nat j - Z.of_nat j')) 1 &&
    negb (Z.eqb (Z.abs (Z.of_nat i - Z.of_nat i')) 0 && Z.eqb (Z.abs (Z.of_nat j - Z.of_nat j')) 0)) = true ->
@@ -1423,6 +1474,7 @@ Proof.
   - replace (Z.of_nat j' - Z.of_nat j')%Z with 0%Z in H2 by lia. discriminate.
 Qed.
 
+(** von Neumann predicate with radius 1 implies one of four cardinal neighbors. *)
 Lemma vn_pred_implies_four_neighbors : forall i j i' j',
   (Z.leb (Z.abs (Z.of_nat i - Z.of_nat i') + Z.abs (Z.of_nat j - Z.of_nat j')) 1 &&
    negb (Z.eqb (Z.abs (Z.of_nat i - Z.of_nat i')) 0 && Z.eqb (Z.abs (Z.of_nat j - Z.of_nat j')) 0)) = true ->
@@ -1458,6 +1510,7 @@ Proof.
         reflexivity.
 Qed.
 
+(** von Neumann neighbor count bounded by grid area. *)
 Lemma von_neumann_radius_1_at_most_grid_squared :
   forall p,
     (length (von_neumann_neighbors p) <= grid_size * grid_size)%nat.
@@ -1470,6 +1523,7 @@ Proof.
   lia.
 Qed.
 
+(** von Neumann neighbors with radius 1 on 2×2 grid have at most 4 neighbors. *)
 Lemma von_neumann_radius_1_at_most_4 :
   neighborhood_radius = 1%nat ->
   grid_size = 2%nat ->
@@ -1481,6 +1535,7 @@ Proof.
   rewrite Hgs in H. simpl in H. exact H.
 Qed.
 
+(** von Neumann neighbors with radius 1 on grids ≤ 2×2 have at most 4 neighbors. *)
 Lemma von_neumann_radius_1_at_most_4_when_grid_le_2 :
   neighborhood_radius = 1%nat ->
   (grid_size <= 2)%nat ->
@@ -1498,6 +1553,7 @@ Proof.
       * lia.
 Qed.
 
+(** von Neumann neighbors with radius 1 have at most 4 neighbors (conditional on NoDup). *)
 Lemma von_neumann_radius_1_truly_at_most_4_conditional :
   neighborhood_radius = 1%nat ->
   NoDup all_positions_grid ->
@@ -1518,6 +1574,7 @@ Proof.
   - simpl. lia.
 Qed.
 
+(** Neighbors are in bounds. *)
 Corollary neighbors_in_bounds :
   forall p q,
     In q (neighbors p) ->
@@ -1529,6 +1586,7 @@ Proof.
   apply all_positions_only_in_bounds; assumption.
 Qed.
 
+(** Neighbors are in all_positions_grid. *)
 Corollary neighbors_subset_all_positions :
   forall p q,
     In q (neighbors p) ->
@@ -1540,18 +1598,21 @@ Proof.
 Qed.
 
 (* -----------------------------------------------------------------------------
-   Happiness: how content is an agent with its neighbors?
+   Happiness
    ----------------------------------------------------------------------------- *)
 
+(** Cell is occupied. *)
 Definition is_occupied (c : Cell) : bool :=
   match c with
   | Empty => false
   | Occupied _ => true
   end.
 
+(** Occupation count: 1 if occupied, 0 if empty. *)
 Definition cell_occ (c : Cell) : nat :=
   if is_occupied c then 1 else 0.
 
+(** Count neighbors of same type as agent a. *)
 Fixpoint count_same (a : Agent) (cells : list Cell) : nat :=
   match cells with
   | [] => 0
@@ -1562,9 +1623,11 @@ Fixpoint count_same (a : Agent) (cells : list Cell) : nat :=
       else count_same a cs
   end.
 
+(** Cells at neighbor positions. *)
 Definition neighbor_cells (g : Grid) (p : Pos) : list Cell :=
   map (fun q => get_cell g q) (neighbors p).
 
+(** Agent at p is happy if it has ≥ tau same-type neighbors. *)
 Definition happy (tau : nat) (g : Grid) (p : Pos) : bool :=
   match get_cell g p with
   | Empty => true
@@ -1572,11 +1635,11 @@ Definition happy (tau : nat) (g : Grid) (p : Pos) : bool :=
       Nat.leb tau (count_same a (neighbor_cells g p))
   end.
 
+(** Hypothetical happiness of agent a at position p. *)
 Definition happy_for (tau : nat) (g : Grid) (a : Agent) (p : Pos) : bool :=
   Nat.leb tau (count_same a (neighbor_cells g p)).
 
-(** Agent-specific tolerance variant: tolerance is a function from Agent to nat *)
-
+(** Happiness with agent-specific tolerance function. *)
 Definition happy_agent_tolerance (tau_fn : Agent -> nat) (g : Grid) (p : Pos) : bool :=
   match get_cell g p with
   | Empty => true
@@ -1584,11 +1647,11 @@ Definition happy_agent_tolerance (tau_fn : Agent -> nat) (g : Grid) (p : Pos) : 
       Nat.leb (tau_fn a) (count_same a (neighbor_cells g p))
   end.
 
+(** Hypothetical happiness with agent-specific tolerance. *)
 Definition happy_for_agent_tolerance (tau_fn : Agent -> nat) (g : Grid) (a : Agent) (p : Pos) : bool :=
   Nat.leb (tau_fn a) (count_same a (neighbor_cells g p)).
 
-(** Uniform tolerance is a special case of agent-specific tolerance *)
-
+(** Uniform tolerance equals constant tolerance function. *)
 Lemma happy_uniform_is_agent_tolerance :
   forall tau g p,
     happy tau g p = happy_agent_tolerance (fun _ => tau) g p.
@@ -1598,6 +1661,7 @@ Proof.
   destruct (get_cell g p); reflexivity.
 Qed.
 
+(** Hypothetical happiness with uniform tolerance equals constant tolerance function. *)
 Lemma happy_for_uniform_is_agent_tolerance :
   forall tau g a p,
     happy_for tau g a p = happy_for_agent_tolerance (fun _ => tau) g a p.
@@ -1607,6 +1671,7 @@ Proof.
   reflexivity.
 Qed.
 
+(** Empty cells are always happy. *)
 Lemma empty_cell_always_happy :
   forall tau g p,
     get_cell g p = Empty ->
@@ -1618,6 +1683,7 @@ Proof.
   reflexivity.
 Qed.
 
+(** Happiness characterization: empty or sufficient same-type neighbors. *)
 Lemma happy_iff_empty_or_satisfied :
   forall tau g p,
     happy tau g p = true <->
@@ -1635,6 +1701,7 @@ Proof.
     + unfold happy; rewrite Hocc; apply Nat.leb_le; assumption.
 Qed.
 
+(** Happiness for occupied cell iff sufficient same-type neighbors. *)
 Lemma happy_occupied :
   forall tau g p a,
     get_cell g p = Occupied a ->
@@ -1646,6 +1713,7 @@ Proof.
   - intros Hcount; unfold happy; rewrite Hcell; apply Nat.leb_le; assumption.
 Qed.
 
+(** Tolerance 0 makes all agents happy. *)
 Lemma zero_tolerance_all_happy :
   forall g p,
     happy 0 g p = true.
@@ -1658,22 +1726,26 @@ Proof.
 Qed.
 
 (* -----------------------------------------------------------------------------
-   Destination search: where can an agent go?
+   Destination Search
    ----------------------------------------------------------------------------- *)
 
+(** Position is empty. *)
 Definition cell_is_empty (g : Grid) (p : Pos) : bool :=
   negb (is_occupied (get_cell g p)).
 
+(** Position is empty and makes agent a happy. *)
 Definition empty_and_happy_for (tau : nat) (g : Grid) (a : Agent) (p : Pos) : bool :=
   cell_is_empty g p && happy_for tau g a p.
 
+(** First empty position that makes agent a happy. *)
 Definition find_destination (tau : nat) (g : Grid) (a : Agent) : option Pos :=
   List.find (empty_and_happy_for tau g a) all_positions_grid.
 
 (* -----------------------------------------------------------------------------
-   Single-Step Dynamics at One Position
+   Single-Position Dynamics
    ----------------------------------------------------------------------------- *)
 
+(** Update grid at position p: unhappy agent moves if destination exists. *)
 Definition step_position (tau : nat) (g : Grid) (p : Pos) : Grid :=
   match get_cell g p with
   | Empty => g
@@ -1691,9 +1763,10 @@ Definition step_position (tau : nat) (g : Grid) (p : Pos) : Grid :=
   end.
 
 (* -----------------------------------------------------------------------------
-   Global Step: Sweep the Entire Grid in a Fixed Order
+   Global Step (Sequential Update)
    ----------------------------------------------------------------------------- *)
 
+(** Update grid sequentially over list of positions. *)
 Fixpoint step_positions (tau : nat) (ps : list Pos) (g : Grid) : Grid :=
   match ps with
   | [] => g
@@ -1702,6 +1775,7 @@ Fixpoint step_positions (tau : nat) (ps : list Pos) (g : Grid) : Grid :=
       step_positions tau ps' g'
   end.
 
+(** Global step: sweep all positions in fixed order. *)
 Definition step (tau : nat) (g : Grid) : Grid :=
   step_positions tau all_positions_grid g.
 
@@ -1709,14 +1783,17 @@ Definition step (tau : nat) (g : Grid) : Grid :=
    Agent-Specific Tolerance Dynamics
    ----------------------------------------------------------------------------- *)
 
+(** Position is empty and makes agent a happy (agent-specific tolerance). *)
 Definition empty_and_happy_for_agent_tolerance
   (tau_fn : Agent -> nat) (g : Grid) (a : Agent) (p : Pos) : bool :=
   cell_is_empty g p && happy_for_agent_tolerance tau_fn g a p.
 
+(** First empty position making agent a happy (agent-specific tolerance). *)
 Definition find_destination_agent_tolerance
   (tau_fn : Agent -> nat) (g : Grid) (a : Agent) : option Pos :=
   List.find (empty_and_happy_for_agent_tolerance tau_fn g a) all_positions_grid.
 
+(** Update grid at position p with agent-specific tolerance. *)
 Definition step_position_agent_tolerance
   (tau_fn : Agent -> nat) (g : Grid) (p : Pos) : Grid :=
   match get_cell g p with
@@ -1734,6 +1811,7 @@ Definition step_position_agent_tolerance
         end
   end.
 
+(** Sequential update with agent-specific tolerance. *)
 Fixpoint step_positions_agent_tolerance
   (tau_fn : Agent -> nat) (ps : list Pos) (g : Grid) : Grid :=
   match ps with
@@ -1743,11 +1821,11 @@ Fixpoint step_positions_agent_tolerance
       step_positions_agent_tolerance tau_fn ps' g'
   end.
 
+(** Global step with agent-specific tolerance. *)
 Definition step_agent_tolerance (tau_fn : Agent -> nat) (g : Grid) : Grid :=
   step_positions_agent_tolerance tau_fn all_positions_grid g.
 
-(** Uniform tolerance matches the agent-specific variant *)
-
+(** Uniform tolerance destination check equals constant tolerance function. *)
 Lemma empty_and_happy_for_uniform_matches_agent_tolerance :
   forall tau g a p,
     empty_and_happy_for tau g a p =
@@ -1759,6 +1837,7 @@ Proof.
   reflexivity.
 Qed.
 
+(** Uniform tolerance destination search equals constant tolerance function. *)
 Lemma find_destination_uniform_matches_agent_tolerance :
   forall tau g a,
     find_destination tau g a = find_destination_agent_tolerance (fun _ => tau) g a.
@@ -1773,6 +1852,7 @@ Proof.
   reflexivity.
 Qed.
 
+(** Uniform tolerance single-position step equals constant tolerance function. *)
 Lemma step_position_uniform_matches_agent_tolerance :
   forall tau g p,
     step_position tau g p = step_position_agent_tolerance (fun _ => tau) g p.
@@ -1790,6 +1870,7 @@ Qed.
    Parallel Update Semantics
    ----------------------------------------------------------------------------- *)
 
+(** Compute all moves for positions in list ps. *)
 Fixpoint compute_moves (tau : nat) (g : Grid) (ps : list Pos) : list (Pos * Pos * Agent) :=
   match ps with
   | [] => []
@@ -1807,6 +1888,7 @@ Fixpoint compute_moves (tau : nat) (g : Grid) (ps : list Pos) : list (Pos * Pos 
       end
   end.
 
+(** Apply list of moves sequentially to grid. *)
 Fixpoint apply_moves (moves : list (Pos * Pos * Agent)) (g : Grid) : Grid :=
   match moves with
   | [] => g
@@ -1816,22 +1898,26 @@ Fixpoint apply_moves (moves : list (Pos * Pos * Agent)) (g : Grid) : Grid :=
       apply_moves rest g2
   end.
 
+(** Boolean NoDup checker using equality predicate. *)
 Fixpoint NoDup_b {A : Type} (eqb : A -> A -> bool) (l : list A) : bool :=
   match l with
   | [] => true
   | x :: xs => negb (existsb (eqb x) xs) && NoDup_b eqb xs
   end.
 
+(** Extract destination positions from moves. *)
 Fixpoint destinations_in_moves (moves : list (Pos * Pos * Agent)) : list Pos :=
   match moves with
   | [] => []
   | (_, q, _) :: rest => q :: destinations_in_moves rest
   end.
 
+(** Check if moves have destination conflicts. *)
 Definition has_destination_conflict (moves : list (Pos * Pos * Agent)) : bool :=
   let dests := destinations_in_moves moves in
   negb (NoDup_b pos_eqb dests).
 
+(** Remove moves with duplicate destinations (keep first). *)
 Fixpoint remove_conflicts_aux (moves : list (Pos * Pos * Agent))
                                (seen_dests : list Pos) : list (Pos * Pos * Agent) :=
   match moves with
@@ -1843,23 +1929,28 @@ Fixpoint remove_conflicts_aux (moves : list (Pos * Pos * Agent))
         (p, q, a) :: remove_conflicts_aux rest (q :: seen_dests)
   end.
 
+(** Remove destination conflicts from moves. *)
 Definition remove_conflicts (moves : list (Pos * Pos * Agent)) : list (Pos * Pos * Agent) :=
   remove_conflicts_aux moves [].
 
+(** Parallel step without conflict resolution. *)
 Definition step_parallel_old (tau : nat) (g : Grid) : Grid :=
   apply_moves (compute_moves tau g all_positions_grid) g.
 
+(** Parallel step with conflict resolution. *)
 Definition step_parallel (tau : nat) (g : Grid) : Grid :=
   let all_moves := compute_moves tau g all_positions_grid in
   let conflict_free_moves := remove_conflicts all_moves in
   apply_moves conflict_free_moves g.
 
+(** Applying empty move list is identity. *)
 Lemma apply_moves_nil :
   forall g, apply_moves [] g = g.
 Proof.
   intros g. reflexivity.
 Qed.
 
+(** compute_moves distributes over list concatenation. *)
 Lemma compute_moves_app :
   forall tau g ps1 ps2,
     compute_moves tau g (ps1 ++ ps2) =
@@ -1873,6 +1964,7 @@ Proof.
   simpl. rewrite IH. reflexivity.
 Qed.
 
+(** existsb false implies not in list. *)
 Lemma existsb_false_not_in :
   forall q seen,
     existsb (pos_eqb q) seen = false ->
@@ -1884,6 +1976,7 @@ Proof.
   rewrite H in Htrue. discriminate.
 Qed.
 
+(** Positions in seen do not appear in conflict-removed destinations. *)
 Lemma remove_conflicts_aux_not_in_result :
   forall moves seen q,
     In q seen ->
@@ -1898,6 +1991,7 @@ Proof.
       * apply (IH (q' :: seen) q). right. assumption. assumption.
 Qed.
 
+(** Conflict removal produces unique destinations. *)
 Lemma remove_conflicts_aux_no_duplicates :
   forall moves seen,
     NoDup (destinations_in_moves (remove_conflicts_aux moves seen)).
@@ -1911,6 +2005,7 @@ Proof.
       * apply IH.
 Qed.
 
+(** remove_conflicts produces NoDup destination list. *)
 Lemma remove_conflicts_no_duplicates :
   forall moves,
     NoDup (destinations_in_moves (remove_conflicts moves)).
@@ -1920,18 +2015,21 @@ Proof.
   apply remove_conflicts_aux_no_duplicates.
 Qed.
 
+(** Extract source positions from moves. *)
 Fixpoint sources_in_moves (moves : list (Pos * Pos * Agent)) : list Pos :=
   match moves with
   | [] => []
   | (p, _, _) :: rest => p :: sources_in_moves rest
   end.
 
+(** Extract agents from moves. *)
 Fixpoint agents_in_moves (moves : list (Pos * Pos * Agent)) : list Agent :=
   match moves with
   | [] => []
   | (_, _, a) :: rest => a :: agents_in_moves rest
   end.
 
+(** Source position in computed move is occupied by the agent. *)
 Lemma compute_moves_source_occupied :
   forall tau g ps p q a,
     In (p, q, a) (compute_moves tau g ps) ->
@@ -1950,6 +2048,7 @@ Proof.
         -- apply (IH p q a). assumption.
 Qed.
 
+(** Destination position in computed move is empty. *)
 Lemma compute_moves_dest_empty :
   forall tau g ps p q a,
     In (p, q, a) (compute_moves tau g ps) ->
@@ -1980,6 +2079,7 @@ Proof.
         -- apply (IH p q a). assumption.
 Qed.
 
+(** Source and destination in computed move are distinct. *)
 Lemma compute_moves_source_dest_different :
   forall tau g ps p q a,
     In (p, q, a) (compute_moves tau g ps) ->
@@ -1991,6 +2091,7 @@ Proof.
   intros Heq. subst q. rewrite Hocc in Hempty. discriminate.
 Qed.
 
+(** Conflict-removed moves are subset of original moves. *)
 Lemma remove_conflicts_aux_subset :
   forall moves seen p q a,
     In (p, q, a) (remove_conflicts_aux moves seen) ->
@@ -2005,6 +2106,7 @@ Proof.
       * right. apply IH with (seen := q' :: seen). assumption.
 Qed.
 
+(** remove_conflicts produces subset of original moves. *)
 Lemma remove_conflicts_subset :
   forall moves p q a,
     In (p, q, a) (remove_conflicts moves) ->
@@ -2016,23 +2118,22 @@ Proof.
 Qed.
 
 (* -----------------------------------------------------------------------------
-   Relational Semantics: Alternative Characterization of Dynamics
+   Relational Semantics
    ----------------------------------------------------------------------------- *)
 
-(** We provide a relational semantics as an alternative to the functional
-    definition. This is useful for reasoning about properties like
-    determinism, confluence, and for potential extensions to non-determinism. *)
-
+(** Step relation for global step. *)
 Inductive StepRel (tau : nat) : Grid -> Grid -> Prop :=
   | step_rel_intro : forall g g',
       g' = step tau g ->
       StepRel tau g g'.
 
+(** Step relation for single-position step. *)
 Inductive StepPositionRel (tau : nat) (p : Pos) : Grid -> Grid -> Prop :=
   | step_position_rel_intro : forall g g',
       g' = step_position tau g p ->
       StepPositionRel tau p g g'.
 
+(** StepRel is functional. *)
 Lemma step_rel_functional :
   forall tau g g1 g2,
     StepRel tau g g1 ->
@@ -2044,6 +2145,7 @@ Proof.
   reflexivity.
 Qed.
 
+(** StepPositionRel is functional. *)
 Lemma step_position_rel_functional :
   forall tau p g g1 g2,
     StepPositionRel tau p g g1 ->
@@ -2055,6 +2157,7 @@ Proof.
   reflexivity.
 Qed.
 
+(** StepRel iff functional step. *)
 Lemma step_rel_iff_step :
   forall tau g g',
     StepRel tau g g' <-> g' = step tau g.
@@ -2064,6 +2167,7 @@ Proof.
   - intros H; constructor; assumption.
 Qed.
 
+(** StepPositionRel iff functional step_position. *)
 Lemma step_position_rel_iff_step_position :
   forall tau p g g',
     StepPositionRel tau p g g' <-> g' = step_position tau g p.
@@ -2073,6 +2177,7 @@ Proof.
   - intros H; constructor; assumption.
 Qed.
 
+(** StepRel is deterministic. *)
 Theorem step_rel_deterministic :
   forall tau g g1 g2,
     StepRel tau g g1 ->
@@ -2083,6 +2188,7 @@ Proof.
   apply step_rel_functional with (tau := tau) (g := g); assumption.
 Qed.
 
+(** StepPositionRel is deterministic. *)
 Theorem step_position_rel_deterministic :
   forall tau p g g1 g2,
     StepPositionRel tau p g g1 ->
@@ -2093,6 +2199,7 @@ Proof.
   apply step_position_rel_functional with (tau := tau) (p := p) (g := g); assumption.
 Qed.
 
+(** StepRel always exists. *)
 Lemma step_rel_exists :
   forall tau g,
     exists g', StepRel tau g g'.
@@ -2102,6 +2209,7 @@ Proof.
   constructor; reflexivity.
 Qed.
 
+(** StepPositionRel always exists. *)
 Lemma step_position_rel_exists :
   forall tau p g,
     exists g', StepPositionRel tau p g g'.
@@ -2111,6 +2219,7 @@ Proof.
   constructor; reflexivity.
 Qed.
 
+(** Reflexive transitive closure of StepRel. *)
 Inductive StepStar (tau : nat) : Grid -> Grid -> Prop :=
   | step_star_refl : forall g,
       StepStar tau g g
@@ -2119,6 +2228,7 @@ Inductive StepStar (tau : nat) : Grid -> Grid -> Prop :=
       StepStar tau g' g'' ->
       StepStar tau g g''.
 
+(** StepStar is transitive. *)
 Lemma step_star_trans :
   forall tau g1 g2 g3,
     StepStar tau g1 g2 ->
@@ -2133,6 +2243,7 @@ Proof.
     + apply IH; assumption.
 Qed.
 
+(** Single step implies StepStar. *)
 Lemma step_star_one :
   forall tau g g',
     StepRel tau g g' ->
@@ -2144,6 +2255,7 @@ Proof.
   - constructor.
 Qed.
 
+(** n iterations implies StepStar. *)
 Lemma step_star_n :
   forall tau g n,
     StepStar tau g (Nat.iter n (step tau) g).
@@ -2159,56 +2271,36 @@ Proof.
 Qed.
 
 (* -----------------------------------------------------------------------------
-   A Simple but Non-Trivial Global Property: Stability Fixed Points
+   Stability
    ----------------------------------------------------------------------------- *)
 
-(** A grid is [stable] for tolerance [tau] if every agent is already happy. *)
-
+(** Grid is stable if all agents are happy. *)
 Definition stable (tau : nat) (g : Grid) : Prop :=
   forall p, happy tau g p = true.
 
+(** Boolean check for happiness over position list. *)
 Fixpoint all_happy_b (tau : nat) (g : Grid) (ps : list Pos) : bool :=
   match ps with
   | [] => true
   | p :: ps' => happy tau g p && all_happy_b tau g ps'
   end.
 
+(** Boolean stability check over all positions. *)
 Definition stable_b (tau : nat) (g : Grid) : bool :=
   all_happy_b tau g all_positions_grid.
 
-(* ============================================================================
-   Additional Notations - Grid Predicates and Dynamics
-   ============================================================================ *)
+(* -----------------------------------------------------------------------------
+   Additional Notations
+   ----------------------------------------------------------------------------- *)
 
-(* Wellformedness *)
 Notation "⊢ g" := (wellformed_grid g) (at level 70, no associativity).
-
-(* Happiness and stability *)
 Notation "g ⊨[ tau ] p" := (happy tau g p = true) (at level 70).
 Notation "g ⊭[ tau ] p" := (happy tau g p = false) (at level 70).
 Notation "⌊ tau ⌋ g" := (stable tau g) (at level 70, no associativity).
-
-(* Step function *)
 Notation "g →[ tau ]" := (step tau g) (at level 50).
 Notation "g ^[ tau , n ]" := (Nat.iter n (step tau) g) (at level 50).
 
-(** Usage Examples:
-    Before: Lemma foo : forall tau g p a,
-              wellformed_grid g ->
-              get_cell g p = Occupied a ->
-              happy tau g p = false -> ...
-    After:  Lemma foo : forall tau g p a,
-              ⊢ g ->
-              g[p] = Occupied a ->
-              g ⊭[tau] p -> ...
-
-    Before: stable tau g -> step tau g = g
-    After:  ⌊tau⌋ g -> g →[tau] = g
-
-    Before: Nat.iter 10 (step tau) g
-    After:  g ^[tau, 10]
-*)
-
+(** all_happy_b iff all positions happy. *)
 Lemma all_happy_b_spec :
   forall tau g ps,
     all_happy_b tau g ps = true <-> (forall p, In p ps -> happy tau g p = true).
@@ -2225,6 +2317,7 @@ Proof.
     + apply IH; intros q Hin; apply H; right; assumption.
 Qed.
 
+(** Boolean stability iff all grid positions happy. *)
 Lemma stable_iff_bounded : forall tau g,
   (forall p, In p all_positions_grid -> happy tau g p = true) <-> stable_b tau g = true.
 Proof.
@@ -2233,6 +2326,7 @@ Proof.
   - intros H; unfold stable_b in H; apply all_happy_b_spec; assumption.
 Qed.
 
+(** In-bounds positions are in all_positions_grid. *)
 Lemma all_positions_contains_bounded :
   forall p, (exists i j : nat, p = (i, j) /\ (i < grid_size)%nat /\ (j < grid_size)%nat) -> In p all_positions_grid.
 Proof.
@@ -2240,6 +2334,7 @@ Proof.
   apply all_positions_coverage; assumption.
 Qed.
 
+(** Boolean stability iff all in-bounds positions happy. *)
 Lemma stable_iff_in_bounds : forall tau g,
   (forall i j, (i < grid_size)%nat -> (j < grid_size)%nat -> happy tau g (i, j) = true) <-> stable_b tau g = true.
 Proof.
@@ -2251,6 +2346,7 @@ Proof.
     apply stable_iff_bounded; assumption.
 Qed.
 
+(** Stability implies happiness on all positions. *)
 Lemma stable_forall_in_all_positions :
   forall tau g,
     stable tau g -> (forall p, In p all_positions_grid -> happy tau g p = true).
@@ -2258,6 +2354,7 @@ Proof.
   intros tau g Hstable p Hin; apply Hstable.
 Qed.
 
+(** Out-of-bounds empty cells are happy. *)
 Lemma happy_out_of_bounds_when_empty :
   forall tau g i j,
     ((i >= grid_size)%nat \/ (j >= grid_size)%nat) ->
@@ -2268,6 +2365,7 @@ Proof.
   apply empty_cell_always_happy; assumption.
 Qed.
 
+(** Out-of-bounds occupied cell happiness equals tolerance check. *)
 Lemma happy_out_of_bounds_leb :
   forall tau g i j a,
     ((i >= grid_size)%nat \/ (j >= grid_size)%nat) ->
@@ -2278,6 +2376,7 @@ Proof.
   unfold happy; rewrite Hocc; reflexivity.
 Qed.
 
+(** Stability from in-bounds happiness and empty out-of-bounds. *)
 Lemma stable_from_bounded_assuming_empty_outside :
   forall tau g,
     (forall i j, ((i >= grid_size)%nat \/ (j >= grid_size)%nat) -> get_cell g (i, j) = Empty) ->
@@ -2292,6 +2391,7 @@ Proof.
   - apply Nat.ltb_ge in Hi; apply empty_cell_always_happy; apply Hempty; left; assumption.
 Qed.
 
+(** Stability implies in-bounds happiness. *)
 Lemma stable_to_bounded :
   forall tau g,
     stable tau g ->
@@ -2300,6 +2400,7 @@ Proof.
   intros tau g Hstable i j Hi Hj; apply Hstable.
 Qed.
 
+(** Wellformed stability iff in-bounds happiness. *)
 Lemma stable_bounded_iff_wellformed :
   forall tau g,
     wellformed_grid g ->
@@ -2311,6 +2412,7 @@ Proof.
   - apply stable_from_bounded_assuming_empty_outside; assumption.
 Qed.
 
+(** Wellformed stability iff boolean stability. *)
 Lemma stable_iff_wellformed : forall tau g,
   wellformed_grid g ->
   (stable tau g <-> stable_b tau g = true).
@@ -2321,6 +2423,7 @@ Proof.
     apply stable_iff_in_bounds; assumption.
 Qed.
 
+(** Decidability of stability on wellformed grids. *)
 Lemma stable_dec_wellformed : forall tau g,
   wellformed_grid g ->
   {stable tau g} + {~ stable tau g}.
@@ -2332,6 +2435,7 @@ Proof.
     rewrite Hcontra in Hstable; discriminate.
 Defined.
 
+(** Single-position step on stable grid is identity. *)
 Lemma step_position_id_on_stable :
   forall tau g p,
     stable tau g ->
@@ -2344,6 +2448,7 @@ Proof.
   - rewrite (Hstable p). reflexivity.
 Qed.
 
+(** Multi-position step on stable grid is identity. *)
 Lemma step_positions_id_on_stable :
   forall tau g ps,
     stable tau g ->
@@ -2356,6 +2461,7 @@ Proof.
     apply IH; assumption.
 Qed.
 
+(** Stable grids are fixed points of step. *)
 Theorem step_stable_fixed_point :
   forall tau g,
     stable tau g ->
@@ -2366,6 +2472,7 @@ Proof.
   apply step_positions_id_on_stable; assumption.
 Qed.
 
+(** Stable grids are fixed points of iterated step. *)
 Corollary step_stable_fixed_point_n :
   forall tau g n,
     stable tau g ->
@@ -2377,6 +2484,7 @@ Proof.
   - rewrite IH; apply step_stable_fixed_point; assumption.
 Qed.
 
+(** Stability is preserved by step. *)
 Corollary stable_stays_stable :
   forall tau g,
     stable tau g ->
@@ -2386,6 +2494,7 @@ Proof.
   rewrite step_stable_fixed_point; assumption.
 Qed.
 
+(** Wellformed stability iff boolean stability. *)
 Corollary stable_wellformed_iff_stable_b :
   forall tau g,
     wellformed_grid g ->
@@ -2394,6 +2503,7 @@ Proof.
   intros tau g Hwf; apply stable_iff_wellformed; assumption.
 Qed.
 
+(** Stability decidability on wellformed grids. *)
 Corollary stable_decidable_wellformed :
   forall tau g,
     wellformed_grid g ->
@@ -2402,6 +2512,7 @@ Proof.
   intros tau g Hwf; apply stable_dec_wellformed; assumption.
 Qed.
 
+(** Zero tolerance implies stability. *)
 Theorem zero_tolerance_stable :
   forall g,
     stable 0 g.
@@ -2410,6 +2521,7 @@ Proof.
   apply zero_tolerance_all_happy.
 Qed.
 
+(** Parallel step on stable grid is identity. *)
 Theorem step_parallel_stable_fixed_point :
   forall tau g,
     stable tau g ->
@@ -2424,6 +2536,7 @@ Proof.
   rewrite Hmoves. simpl. reflexivity.
 Qed.
 
+(** StepStar from stable grid implies equality. *)
 Theorem step_star_stable_fixed :
   forall tau g g',
     stable tau g ->
@@ -2439,6 +2552,7 @@ Proof.
     apply IH; assumption.
 Qed.
 
+(** Single-position step preserves wellformedness. *)
 Lemma step_position_preserves_wellformed :
   forall tau g p,
     wellformed_grid g ->
@@ -2461,6 +2575,7 @@ Proof.
       * assumption.
 Qed.
 
+(** Multi-position step preserves wellformedness. *)
 Lemma step_positions_preserves_wellformed :
   forall tau ps g,
     wellformed_grid g ->
@@ -2471,6 +2586,7 @@ Proof.
   - apply IH; apply step_position_preserves_wellformed; assumption.
 Qed.
 
+(** Global step preserves wellformedness. *)
 Lemma step_preserves_wellformed :
   forall tau g,
     wellformed_grid g ->
@@ -2480,6 +2596,7 @@ Proof.
   unfold step; apply step_positions_preserves_wellformed; assumption.
 Qed.
 
+(** Iterated step preserves wellformedness. *)
 Corollary step_n_preserves_wellformed :
   forall tau g n,
     wellformed_grid g ->
@@ -2491,6 +2608,7 @@ Proof.
   - apply step_preserves_wellformed; assumption.
 Qed.
 
+(** Step on wellformed stable grid preserves wellformedness. *)
 Corollary wellformed_stable_wellformed :
   forall tau g,
     wellformed_grid g ->
@@ -2501,6 +2619,7 @@ Proof.
   rewrite step_stable_fixed_point; assumption.
 Qed.
 
+(** Single-position step on wellformed stable grid is identity. *)
 Corollary step_position_wellformed_same_at_stable_pos :
   forall tau g p,
     wellformed_grid g ->
@@ -2512,9 +2631,10 @@ Proof.
 Qed.
 
 (* -----------------------------------------------------------------------------
-   Agent Conservation: Total Agent Count is Invariant
+   Agent Conservation
    ----------------------------------------------------------------------------- *)
 
+(** Count agents in cell list. *)
 Fixpoint count_agents_in_cells (cs : list Cell) : nat :=
   match cs with
   | [] => 0
@@ -2522,12 +2642,15 @@ Fixpoint count_agents_in_cells (cs : list Cell) : nat :=
   | Occupied _ :: cs' => S (count_agents_in_cells cs')
   end.
 
+(** Count agents at given positions. *)
 Definition count_agents_at_positions (g : Grid) (ps : list Pos) : nat :=
   count_agents_in_cells (map (get_cell g) ps).
 
+(** Total agent count on grid. *)
 Definition count_agents (g : Grid) : nat :=
   count_agents_at_positions g all_positions_grid.
 
+(** Agent count distributes over list concatenation. *)
 Lemma count_agents_in_cells_app :
   forall cs1 cs2,
     count_agents_in_cells (cs1 ++ cs2) =
@@ -2539,6 +2662,7 @@ Proof.
   - destruct c; simpl; rewrite IH; reflexivity.
 Qed.
 
+(** Agent count at positions distributes over list concatenation. *)
 Lemma count_agents_at_positions_app :
   forall g ps1 ps2,
     count_agents_at_positions g (ps1 ++ ps2) =
@@ -2550,6 +2674,7 @@ Proof.
   apply count_agents_in_cells_app.
 Qed.
 
+(** Empty cell contributes 0 to agent count. *)
 Lemma count_agents_in_cells_cons_empty :
   forall cs,
     count_agents_in_cells (Empty :: cs) = count_agents_in_cells cs.
@@ -2557,6 +2682,7 @@ Proof.
   intros cs; reflexivity.
 Qed.
 
+(** Occupied cell contributes 1 to agent count. *)
 Lemma count_agents_in_cells_cons_occupied :
   forall a cs,
     count_agents_in_cells (Occupied a :: cs) = S (count_agents_in_cells cs).
@@ -2564,8 +2690,7 @@ Proof.
   intros a cs; reflexivity.
 Qed.
 
-(* Helper lemmas for count_agents proofs *)
-
+(** Swapping cells preserves agent count. *)
 Lemma count_agents_in_cells_swap :
   forall cs1 cs2 c1 c2,
     count_agents_in_cells (cs1 ++ c1 :: cs2 ++ c2 :: []) =
@@ -2578,6 +2703,7 @@ Proof.
   repeat rewrite Nat.add_0_r; ring.
 Qed.
 
+(** Mapping get_cell is extensional. *)
 Lemma map_get_cell_extensional :
   forall g1 g2 ps,
     (forall p, In p ps -> get_cell g1 p = get_cell g2 p) ->
@@ -2591,6 +2717,7 @@ Proof.
     reflexivity.
 Qed.
 
+(** Agent count is extensional on all_positions_grid. *)
 Lemma count_agents_extensional :
   forall g1 g2,
     (forall p, In p all_positions_grid -> get_cell g1 p = get_cell g2 p) ->
@@ -2603,6 +2730,7 @@ Proof.
   assumption.
 Qed.
 
+(** Reading second write returns second value. *)
 Lemma get_cell_double_set_same :
   forall g p q c1 c2,
     get_cell (set_cell (set_cell g p c1) q c2) q = c2.
@@ -2611,6 +2739,7 @@ Proof.
   apply get_set_same.
 Qed.
 
+(** Reading first write after second write (different positions). *)
 Lemma get_cell_double_set_first :
   forall g p q c1 c2,
     p <> q ->
@@ -2622,6 +2751,7 @@ Proof.
   - intros contra; subst; apply Hneq; reflexivity.
 Qed.
 
+(** Reading other position after two writes. *)
 Lemma get_cell_double_set_other :
   forall g p q r c1 c2,
     p <> r ->
@@ -2634,6 +2764,7 @@ Proof.
   reflexivity.
 Qed.
 
+(** Empty and occupied cell count properties. *)
 Lemma count_agents_in_cells_eq_empty_occupied :
   forall cs c,
     count_agents_in_cells (Empty :: cs) = count_agents_in_cells cs /\
@@ -2642,6 +2773,7 @@ Proof.
   intros cs c; split; reflexivity.
 Qed.
 
+(** Swapping two cells preserves count. *)
 Lemma count_cell_swap :
   forall c1 c2,
     count_agents_in_cells [c1; c2] = count_agents_in_cells [c2; c1].
@@ -2650,6 +2782,7 @@ Proof.
   destruct c1, c2; simpl; reflexivity.
 Qed.
 
+(** Removing one cell and adding another preserves count if both have same occupancy. *)
 Lemma count_agents_in_cells_remove_add :
   forall cs1 cs2 c1 c2,
     count_agents_in_cells (cs1 ++ c1 :: cs2 ++ c2 :: []) =
@@ -2662,6 +2795,7 @@ Proof.
   repeat rewrite Nat.add_0_r; lia.
 Qed.
 
+(** Agent count at positions splits over list concatenation. *)
 Lemma count_agents_in_cells_split_at :
   forall ps1 ps2 g,
     count_agents_in_cells (map (get_cell g) (ps1 ++ ps2)) =
@@ -2673,6 +2807,7 @@ Proof.
   apply count_agents_in_cells_app.
 Qed.
 
+(** Agent count at cons position splits. *)
 Lemma count_agents_in_cells_cons_split :
   forall p ps g,
     count_agents_in_cells (map (get_cell g) (p :: ps)) =
@@ -2682,8 +2817,7 @@ Proof.
   simpl. destruct (get_cell g p); simpl; reflexivity.
 Qed.
 
-(* Micro lemmas for list splitting *)
-
+(** List concatenation associativity with cons. *)
 Lemma app_assoc_cons :
   forall {A : Type} (l1 l2 : list A) (x : A) (l3 : list A),
     l1 ++ x :: l2 ++ l3 = (l1 ++ [x]) ++ l2 ++ l3.
@@ -2692,6 +2826,7 @@ Proof.
   rewrite <- app_assoc. simpl. reflexivity.
 Qed.
 
+(** Not in concatenation iff not in either part. *)
 Lemma not_in_app :
   forall {A : Type} (x : A) (l1 l2 : list A),
     ~ In x (l1 ++ l2) <-> ~ In x l1 /\ ~ In x l2.
@@ -2701,6 +2836,7 @@ Proof.
   - intros [Hnin1 Hnin2] Hin. apply in_app_or in Hin. destruct Hin; contradiction.
 Qed.
 
+(** List structure with x before y. *)
 Lemma in_split_ordered_case1 :
   forall {A : Type} (x y : A) (l1 l2a l2b : list A),
     l1 ++ x :: l2a ++ y :: l2b = l1 ++ x :: (l2a ++ y :: l2b).
@@ -2708,6 +2844,7 @@ Proof.
   intros. reflexivity.
 Qed.
 
+(** List structure with y before x. *)
 Lemma in_split_ordered_case2 :
   forall {A : Type} (x y : A) (l1a l1b l2 : list A),
     l1a ++ y :: l1b ++ x :: l2 = l1a ++ y :: (l1b ++ x :: l2).
@@ -2715,6 +2852,7 @@ Proof.
   intros. reflexivity.
 Qed.
 
+(** Not in cons app when not equal and not in parts. *)
 Lemma not_in_cons_app :
   forall {A : Type} (x y : A) (l1 l2 : list A),
     x <> y ->
@@ -2728,8 +2866,7 @@ Proof.
   - simpl in Hin2. destruct Hin2 as [Heq | Hin2]; [subst; contradiction | contradiction].
 Qed.
 
-(* Four specific lemmas instead of one complex general lemma *)
-
+(** List has form l1++x::l2++y::l3 with membership. *)
 Lemma in_split_xy_form :
   forall {A : Type} (x y : A) (l1 l2 l3 : list A),
     x <> y ->
@@ -2744,6 +2881,7 @@ Proof.
   - right; apply in_or_app; right; simpl; left; reflexivity.
 Qed.
 
+(** List has form l1++y::l2++x::l3 with membership. *)
 Lemma in_split_yx_form :
   forall {A : Type} (x y : A) (l1 l2 l3 : list A),
     x <> y ->
@@ -2758,6 +2896,7 @@ Proof.
   - right; simpl; left; reflexivity.
 Qed.
 
+(** Two distinct elements in list implies one of two orderings. *)
 Lemma in_split_exists_xy_or_yx :
   forall {A : Type} (x y : A) (l : list A),
     x <> y ->
@@ -2781,7 +2920,7 @@ Proof.
     reflexivity.
 Qed.
 
-
+(** First occurrence of x in list l1++x::l2 means x not in l1. *)
 Lemma in_split_gives_first_occurrence :
   forall {A : Type} (x : A) (l l1 l2 : list A),
     In x l ->
@@ -2798,8 +2937,7 @@ Proof.
   lia.
 Qed.
 
-(* Micro lemmas for map preservation under swaps *)
-
+(** Map get_cell preserved outside p and q. *)
 Lemma map_preserved_outside_pq_before :
   forall g p q a l,
     ~ In p l ->
@@ -2811,6 +2949,7 @@ Proof.
   rewrite get_cell_double_set_other; [reflexivity | | ]; intros contra; subst; contradiction.
 Qed.
 
+(** Map get_cell preserved outside p and q (middle). *)
 Lemma map_preserved_outside_pq_middle :
   forall g p q a l,
     ~ In p l ->
@@ -2821,6 +2960,7 @@ Proof.
   apply map_preserved_outside_pq_before; assumption.
 Qed.
 
+(** Map get_cell preserved outside p and q (after). *)
 Lemma map_preserved_outside_pq_after :
   forall g p q a l,
     ~ In p l ->
@@ -2831,6 +2971,7 @@ Proof.
   apply map_preserved_outside_pq_before; assumption.
 Qed.
 
+(** Agent count preserved when swapping p→q (p before q in list). *)
 Lemma count_swap_pq_order :
   forall g p q a l1 l2 l3,
     p <> q ->
@@ -2896,6 +3037,7 @@ Proof.
     simpl. rewrite Hcellq. simpl. lia.
 Qed.
 
+(** Agent count preserved when swapping p→q (q before p in list). *)
 Lemma count_swap_qp_order :
   forall g p q a l1 l2 l3,
     p <> q ->
@@ -2961,6 +3103,7 @@ Proof.
     simpl. rewrite Hcellp. simpl. lia.
 Qed.
 
+(** Sequences are NoDup. *)
 Lemma seq_NoDup : forall start len, NoDup (seq start len).
 Proof.
   intros start len. revert start.
@@ -2971,6 +3114,7 @@ Proof.
     + apply IH.
 Qed.
 
+(** Mapping injective function preserves NoDup. *)
 Lemma map_NoDup_inj :
   forall {A B : Type} (f : A -> B) (l : list A),
     (forall x y, In x l -> In y l -> f x = f y -> x = y) ->
@@ -2990,6 +3134,7 @@ Proof.
       apply Hinj. right. exact Hiny. right. exact Hinz. exact Heq.
 Qed.
 
+(** Concatenating disjoint NoDup lists yields NoDup. *)
 Lemma NoDup_app_intro :
   forall {A : Type} (l1 l2 : list A),
     NoDup l1 ->
@@ -3008,6 +3153,7 @@ Proof.
     + apply IH. intros y Hiny. apply Hdisj. right. assumption.
 Qed.
 
+(** Flat-mapping rows preserves NoDup. *)
 Lemma flat_map_rows_NoDup :
   forall (rows : list nat),
     NoDup rows ->
@@ -3034,6 +3180,7 @@ Proof.
       apply Hnotin. assumption.
 Qed.
 
+(** all_positions_grid has no duplicates. *)
 Lemma all_positions_grid_NoDup : NoDup all_positions_grid.
 Proof.
   unfold all_positions_grid.
@@ -3041,6 +3188,7 @@ Proof.
   apply seq_NoDup.
 Qed.
 
+(** von Neumann radius 1 has at most 4 neighbors (unconditional). *)
 Theorem von_neumann_radius_1_at_most_4_unconditional :
   neighborhood_radius = 1%nat ->
   forall p,
@@ -3052,6 +3200,7 @@ Proof.
   - apply all_positions_grid_NoDup.
 Qed.
 
+(** NoDup l1++x::l2 implies x not in l1. *)
 Lemma NoDup_cons_app : forall {A} (x : A) l1 l2,
   NoDup (l1 ++ x :: l2) -> ~ In x l1.
 Proof.
@@ -3064,6 +3213,7 @@ Proof.
     + apply IH. assumption. assumption.
 Qed.
 
+(** NoDup l1++x::l2 implies x not in l2. *)
 Lemma NoDup_cons_app_r : forall {A} (x : A) l1 l2,
   NoDup (l1 ++ x :: l2) -> ~ In x l2.
 Proof.
@@ -3073,6 +3223,7 @@ Proof.
   - simpl in H. inversion H. subst. apply IH. assumption.
 Qed.
 
+(** NoDup l1++x::l2++y::l3 implies x not in l2. *)
 Lemma NoDup_app_cons_cons : forall {A} (x y : A) l1 l2 l3,
   NoDup (l1 ++ x :: l2 ++ y :: l3) -> ~ In x l2.
 Proof.
@@ -3087,6 +3238,7 @@ Proof.
   apply H. apply in_or_app. right. left. reflexivity.
 Qed.
 
+(** NoDup l1++x::l2++y::l3 implies y not in l1. *)
 Lemma NoDup_app_cons_cons_mid : forall {A} (x y : A) l1 l2 l3,
   NoDup (l1 ++ x :: l2 ++ y :: l3) -> ~ In y l1.
 Proof.
@@ -3102,6 +3254,7 @@ Proof.
   apply H. apply in_or_app. right. right. apply in_or_app. right. left. reflexivity.
 Qed.
 
+(** Two distinct elements in NoDup list have one of two orderings with separation. *)
 Lemma in_split_specific :
   forall {A : Type} (x y : A) (l : list A),
     NoDup l ->
@@ -3130,6 +3283,7 @@ Proof.
       assumption.
 Qed.
 
+(** Swapping agent from p to q preserves agent count. *)
 Lemma count_agents_swap_cells :
   forall g p q a,
     p <> q ->
@@ -3249,6 +3403,7 @@ Proof.
       apply count_swap_pq_order; assumption.
 Qed.
 
+(** Single-position step preserves agent count. *)
 Lemma step_position_preserves_agent_count :
   forall tau g p,
     In p all_positions_grid ->
@@ -3275,6 +3430,8 @@ Proof.
   - subst. rewrite Hcell in Hcellq. discriminate.
   - apply count_agents_swap_cells; assumption.
 Qed.
+
+(** Step positions preserves agent count. *)
 
 Lemma step_positions_preserves_agent_count :
   forall tau ps g,
@@ -3309,6 +3466,8 @@ Proof.
   - rewrite step_preserves_agent_count; assumption.
 Qed.
 
+(** Source position is empty after swap. *)
+
 Lemma swap_get_at_source :
   forall g p q a,
     q <> p ->
@@ -3317,12 +3476,16 @@ Proof.
   intros. rewrite get_set_other, get_set_same by assumption. reflexivity.
 Qed.
 
+(** Destination position is occupied after swap. *)
+
 Lemma swap_get_at_dest :
   forall g p q a,
     get_cell (set_cell (set_cell g p Empty) q (Occupied a)) q = Occupied a.
 Proof.
   intros. rewrite get_set_same. reflexivity.
 Qed.
+
+(** Swap preserves cells elsewhere. *)
 
 Lemma swap_get_elsewhere :
   forall g p q a r,
@@ -3335,6 +3498,8 @@ Proof.
   reflexivity.
 Qed.
 
+(** Cell count is extensional. *)
+
 Lemma count_cells_extensional :
   forall cs1 cs2,
     cs1 = cs2 ->
@@ -3342,6 +3507,8 @@ Lemma count_cells_extensional :
 Proof.
   intros. subst. reflexivity.
 Qed.
+
+(** Swapping preserves agent count when both positions in bounds. *)
 
 Lemma swap_when_both_in_bounds :
   forall g p q a,
@@ -3357,6 +3524,8 @@ Proof.
   - apply all_positions_complete; assumption.
   - apply all_positions_complete; assumption.
 Qed.
+
+(** Setting out-of-bounds cell preserves agent count. *)
 
 Lemma set_cell_out_of_bounds_preserves_count :
   forall g p c,
@@ -3375,6 +3544,8 @@ Proof.
     apply all_positions_only_in_bounds; assumption.
 Qed.
 
+(** Setting two out-of-bounds cells preserves agent count. *)
+
 Lemma set_cell_twice_out_of_bounds_preserves_count :
   forall g p q c1 c2,
     ~ in_bounds p ->
@@ -3387,6 +3558,8 @@ Proof.
   assumption.
 Qed.
 
+(** Setting out-of-bounds cell second preserves count from first set. *)
+
 Lemma set_cell_then_out_of_bounds_preserves_count :
   forall g p q c1 c2,
     ~ in_bounds q ->
@@ -3396,6 +3569,8 @@ Proof.
   apply set_cell_out_of_bounds_preserves_count.
   assumption.
 Qed.
+
+(** Out-of-bounds cells are always empty in wellformed grids. *)
 
 Lemma out_of_bounds_cell_must_be_empty :
   forall g p,
@@ -3414,6 +3589,8 @@ Proof.
   - left; apply Nat.ltb_ge; assumption.
 Qed.
 
+(** Swapping cells preserves agent count. *)
+
 Lemma set_cell_count_agents_swap :
   forall g p q a,
     p <> q ->
@@ -3427,6 +3604,8 @@ Proof.
   apply count_agents_swap_cells; assumption.
 Qed.
 
+(** Applying single move preserves agent count. *)
+
 Lemma apply_moves_preserves_count_single :
   forall g p q a,
     p <> q ->
@@ -3439,12 +3618,16 @@ Proof.
   intros. apply set_cell_count_agents_swap; assumption.
 Qed.
 
+(** Applying moves is compositional. *)
+
 Lemma apply_moves_cons :
   forall m moves g,
     apply_moves (m :: moves) g = apply_moves moves (apply_moves [m] g).
 Proof.
   intros [[p q] a] moves g. simpl. reflexivity.
 Qed.
+
+(** Source position unique in move list. *)
 
 Lemma source_not_in_tail_sources :
   forall (p q : Pos) (a : Agent) (moves' : list (Pos * Pos * Agent)),
@@ -3481,6 +3664,8 @@ Proof.
     apply (Huniq p q a p q' a' H1 H2 Hneq). reflexivity.
 Qed.
 
+(** Destination position unique in move list. *)
+
 Lemma dest_not_in_tail_dests :
   forall q moves',
     NoDup (q :: destinations_in_moves moves') ->
@@ -3493,6 +3678,8 @@ Proof.
   intros Heq; subst q'.
   contradiction.
 Qed.
+
+(** Cells not involved in swap remain unchanged. *)
 
 Lemma get_cell_after_swap_source_empty :
   forall g p q a p',
@@ -3508,6 +3695,8 @@ Proof.
   - intros Heq. apply Hneq_q. symmetry. exact Heq.
 Qed.
 
+(** Move destination appears in destination list. *)
+
 Lemma dest_in_moves :
   forall p q a moves,
     In (p, q, a) moves ->
@@ -3522,6 +3711,8 @@ Proof.
     + right. apply IH. assumption.
 Qed.
 
+(** Not in destinations implies move not in list. *)
+
 Lemma not_in_dest_means_move_not_in :
   forall p q a moves,
     ~ In q (destinations_in_moves moves) ->
@@ -3533,6 +3724,8 @@ Proof.
   assumption.
 Qed.
 
+(** Destination cell becomes occupied after swap. *)
+
 Lemma get_cell_after_swap_at_dest :
   forall g p q a,
     get_cell (set_cell (set_cell g p Empty) q (Occupied a)) q = Occupied a.
@@ -3541,6 +3734,8 @@ Proof.
   rewrite get_set_same.
   reflexivity.
 Qed.
+
+(** Applying single move preserves agent count. *)
 
 Lemma apply_single_move_preserves_count :
   forall g p q a,
@@ -3554,6 +3749,8 @@ Proof.
   intros g p q a Hinp Hinq Hneq Hcellp Hcellq.
   apply set_cell_count_agents_swap; assumption.
 Qed.
+
+(** Computed move sources are in all_positions_grid. *)
 
 Lemma compute_moves_sources_in_all_positions :
   forall tau g ps p q a,
@@ -3584,6 +3781,8 @@ Proof.
            ++ assumption.
 Qed.
 
+(** Computed move destinations are in all_positions_grid. *)
+
 Lemma compute_moves_dests_in_all_positions :
   forall tau g ps p q a,
     In (p, q, a) (compute_moves tau g ps) ->
@@ -3610,6 +3809,8 @@ Proof.
            ++ apply (IH p q a). assumption.
         -- apply (IH p q a). assumption.
 Qed.
+
+(** Applying disjoint moves preserves agent count. *)
 
 Lemma sources_dests_disjoint_preserves_count :
   forall moves g,
@@ -3703,6 +3904,8 @@ Proof.
       * assumption.
 Qed.
 
+(** Computed move sources are in position list ps. *)
+
 Lemma compute_moves_sources_in_ps :
   forall tau g ps p q a,
     In (p, q, a) (compute_moves tau g ps) ->
@@ -3721,6 +3924,8 @@ Proof.
            ++ right. apply (IH p q a). assumption.
         -- right. apply (IH p q a). assumption.
 Qed.
+
+(** At most one move per position in NoDup list. *)
 
 Lemma compute_moves_at_most_one_per_position :
   forall tau g ps p q1 a1 q2 a2,
@@ -3753,6 +3958,8 @@ Proof.
         -- apply (IH p q1 a1 q2 a2); assumption.
 Qed.
 
+(** Computed move sources are unique. *)
+
 Lemma compute_moves_sources_unique :
   forall tau g ps p1 q1 a1 p2 q2 a2,
     NoDup ps ->
@@ -3766,6 +3973,8 @@ Proof.
   apply Hneq.
   apply (compute_moves_at_most_one_per_position tau g ps p1 q1 a1 q2 a2); assumption.
 Qed.
+
+(** Removing conflicts preserves move properties. *)
 
 Lemma remove_conflicts_preserves_properties :
   forall moves tau g ps,
@@ -3834,6 +4043,8 @@ Fixpoint count_different (a : Agent) (cells : list Cell) : nat :=
       else S (count_different a cs)
   end.
 
+(** Same and different counts sum to total agents. *)
+
 Lemma count_same_plus_different :
   forall a cells,
     (count_same a cells + count_different a cells)%nat =
@@ -3847,6 +4058,8 @@ Proof.
     + destruct (agent_eqb a a0); simpl; lia.
 Qed.
 
+(** Local homophily: ratio of same to total neighbors. *)
+
 Definition local_homophily (g : Grid) (p : Pos) : Q :=
   match get_cell g p with
   | Empty => 0%Q
@@ -3859,6 +4072,8 @@ Definition local_homophily (g : Grid) (p : Pos) : Q :=
       | S _ => (Z.of_nat same # Pos.of_nat total)
       end
   end.
+
+(** Rational fraction bounded by 1. *)
 
 Lemma Q_frac_le_1 : forall (num denom : nat),
   (num <= denom)%nat ->
@@ -3874,6 +4089,8 @@ Proof.
     reflexivity. }
   rewrite H0. lia.
 Qed.
+
+(** Local homophily always in [0,1]. *)
 
 Lemma local_homophily_range :
   forall g p,
@@ -3897,6 +4114,8 @@ Proof.
       * apply Q_frac_le_1; lia.
 Qed.
 
+(** Empty cells have zero homophily. *)
+
 Lemma local_homophily_empty :
   forall g p,
     get_cell g p = Empty ->
@@ -3908,12 +4127,16 @@ Proof.
   reflexivity.
 Qed.
 
+(** Rational with equal numerator and denominator equals 1. *)
+
 Lemma Q_num_denom_equal : forall p : positive, (Z.pos p # p == 1)%Q.
 Proof.
   intros p.
   unfold Qeq. simpl.
   lia.
 Qed.
+
+(** Converting positive nat to positive Z. *)
 
 Lemma Z_of_nat_to_pos : forall n, (0 < n)%nat -> Z.of_nat n = Z.pos (Pos.of_nat n).
 Proof.
@@ -3922,6 +4145,8 @@ Proof.
   rewrite Nat2Pos.id by lia.
   reflexivity.
 Qed.
+
+(** Homophily equals 1 when all neighbors are same type. *)
 
 Lemma local_homophily_all_same_neighbors :
   forall g p a,
@@ -3940,6 +4165,8 @@ Proof.
     rewrite Z_of_nat_to_pos by lia.
     apply Q_num_denom_equal.
 Qed.
+
+(** Happy agents have high local homophily. *)
 
 Lemma happy_implies_high_homophily :
   forall tau g p a,
@@ -3965,11 +4192,15 @@ Proof.
     apply Zmult_le_compat_r; lia.
 Qed.
 
+(** Sum of local homophily over position list. *)
+
 Fixpoint sum_local_homophily_list (g : Grid) (ps : list Pos) : Q :=
   match ps with
   | [] => 0%Q
   | p :: ps' => (local_homophily g p + sum_local_homophily_list g ps')%Q
   end.
+
+(** Global segregation: average homophily across all agents. *)
 
 Definition global_segregation (g : Grid) : Q :=
   let total_agents := count_agents g in
@@ -3978,6 +4209,8 @@ Definition global_segregation (g : Grid) : Q :=
   | S _ =>
       (sum_local_homophily_list g all_positions_grid * (1 # Pos.of_nat total_agents))%Q
   end.
+
+(** Sum of local homophily is nonnegative. *)
 
 Lemma sum_local_homophily_nonneg :
   forall g ps,
@@ -3995,6 +4228,8 @@ Proof.
     destruct (sum_local_homophily_list g ps') as [n2 d2].
     simpl in *. ring_simplify. nia.
 Qed.
+
+(** Sum of local homophily bounded by agent count. *)
 
 Lemma sum_local_homophily_bounded :
   forall g ps,
@@ -4035,6 +4270,8 @@ Proof.
         apply Qle_refl.
 Qed.
 
+(** Positive from nat S n equals Z of nat S n. *)
+
 Lemma Zpos_of_nat_Sn : forall n, Z.pos (Pos.of_nat (S n)) = Z.of_nat (S n).
 Proof.
   intros n.
@@ -4045,6 +4282,8 @@ Proof.
   symmetry.
   apply positive_nat_Z.
 Qed.
+
+(** Global segregation always in [0,1]. *)
 
 Lemma global_segregation_range :
   forall g,
@@ -4094,8 +4333,12 @@ Fixpoint count_unhappy_positions_list (tau : nat) (g : Grid) (ps : list Pos) : n
         S (count_unhappy_positions_list tau g ps')
   end.
 
+(** Count unhappy positions in grid. *)
+
 Definition count_unhappy_positions (tau : nat) (g : Grid) : nat :=
   count_unhappy_positions_list tau g all_positions_grid.
+
+(** Counting unhappy distributes over list append. *)
 
 Lemma count_unhappy_positions_list_app :
   forall tau g ps1 ps2,
@@ -4107,6 +4350,8 @@ Proof.
   - reflexivity.
   - destruct (happy tau g p); simpl; rewrite IH; reflexivity.
 Qed.
+
+(** Zero unhappy iff all positions happy. *)
 
 Lemma count_unhappy_zero_iff_all_happy :
   forall tau g ps,
@@ -4126,6 +4371,8 @@ Proof.
     + rewrite H by (left; reflexivity).
       apply IH. intros q Hq. apply H. right. assumption.
 Qed.
+
+(** Stable iff zero unhappy positions. *)
 
 Lemma stable_iff_count_unhappy_zero :
   forall tau g,
@@ -4154,6 +4401,8 @@ Proof.
       * left. apply Nat.ltb_ge. assumption.
 Qed.
 
+(** Unhappy count bounded by grid size. *)
+
 Lemma count_unhappy_bounded :
   forall tau g,
     (count_unhappy_positions tau g <= length all_positions_grid)%nat.
@@ -4165,9 +4414,13 @@ Proof.
   - destruct (happy tau g p); simpl; lia.
 Qed.
 
+(** Upper bound on distinct grid configurations. *)
+
 Definition grid_configs_finite := (3 ^ (grid_size * grid_size))%nat.
 
 (** * Termination and Convergence *)
+
+(** Zero unhappy implies grid is stable fixpoint. *)
 
 Lemma zero_unhappy_implies_stable :
   forall tau g,
@@ -4199,11 +4452,17 @@ Qed.
 
 (** * Cycle Detection *)
 
+(** Grid has period p under step function. *)
+
 Definition has_period (tau : nat) (g : Grid) (p : nat) : Prop :=
   (p > 0)%nat /\ Nat.iter p (step tau) g = g.
 
+(** Grid is fixpoint under step function. *)
+
 Definition is_fixpoint (tau : nat) (g : Grid) : Prop :=
   step tau g = g.
+
+(** Fixpoint is equivalent to period 1. *)
 
 Lemma fixpoint_is_period_1 :
   forall tau g,
@@ -4213,6 +4472,8 @@ Proof.
   - unfold has_period; simpl; split; [lia | assumption].
   - unfold has_period in H; destruct H as [_ H]; simpl in H; assumption.
 Qed.
+
+(** Empty cells are always happy. *)
 
 Lemma happy_empty_cell :
   forall tau g p,
@@ -4224,6 +4485,8 @@ Proof.
   rewrite Hempty.
   reflexivity.
 Qed.
+
+(** Unhappy positions must be occupied. *)
 
 Lemma unhappy_means_occupied :
   forall tau g p,
@@ -4237,6 +4500,8 @@ Proof.
   - exists a; reflexivity.
 Qed.
 
+(** Stable grids are fixpoints. *)
+
 Lemma stable_implies_fixpoint :
   forall tau g,
     stable tau g ->
@@ -4247,6 +4512,8 @@ Proof.
   apply step_stable_fixed_point.
   assumption.
 Qed.
+
+(** Iterating by multiples of period returns to original grid. *)
 
 Lemma period_multiple :
   forall tau g p k,
@@ -4261,6 +4528,8 @@ Proof.
     rewrite IH.
     assumption.
 Qed.
+
+(** Step position either preserves grid or finds valid destination. *)
 
 Lemma step_position_stable_or_changes :
   forall tau g p,
@@ -4295,6 +4564,8 @@ Proof.
       * left; reflexivity.
 Qed.
 
+(** Grid equality at specified positions. *)
+
 Fixpoint grid_eq_at_positions (g1 g2 : Grid) (ps : list Pos) : bool :=
   match ps with
   | [] => true
@@ -4307,8 +4578,12 @@ Fixpoint grid_eq_at_positions (g1 g2 : Grid) (ps : list Pos) : bool :=
       end
   end.
 
+(** Grid equality over all positions. *)
+
 Definition grid_eq (g1 g2 : Grid) : bool :=
   grid_eq_at_positions g1 g2 all_positions_grid.
+
+(** Grid equality is reflexive. *)
 
 Lemma grid_eq_refl :
   forall g,
@@ -4322,6 +4597,8 @@ Proof.
     + apply IH.
     + rewrite agent_eqb_refl. simpl. apply IH.
 Qed.
+
+(** Grid equality specification. *)
 
 Lemma grid_eq_spec :
   forall g1 g2,
@@ -4358,6 +4635,8 @@ Proof.
         apply IH. intros q Hq. apply Hext. right. assumption.
 Qed.
 
+(** False grid equality implies difference exists. *)
+
 Lemma grid_eq_false_implies_exists_diff :
   forall g1 g2,
     grid_eq g1 g2 = false ->
@@ -4379,6 +4658,8 @@ Proof.
         apply agent_eqb_neq in Hagent; congruence.
 Qed.
 
+(** Out-of-bounds cells remain empty after step. *)
+
 Lemma step_out_of_bounds_empty :
   forall tau g i j,
     wellformed_grid g ->
@@ -4388,6 +4669,8 @@ Proof.
   intros tau g i j Hwf Hout.
   apply step_preserves_wellformed; assumption.
 Qed.
+
+(** Grid equality extends to all positions. *)
 
 Lemma grid_eq_true_extensional :
   forall g1 g2,
@@ -4412,6 +4695,8 @@ Proof.
     rewrite H1, H2; reflexivity.
 Qed.
 
+(** Grid equality implies functional equality. *)
+
 Lemma grid_eq_true_to_functional_eq :
   forall g1 g2,
     wellformed_grid g1 ->
@@ -4424,6 +4709,8 @@ Proof.
   destruct p as [i j].
   apply grid_eq_true_extensional; assumption.
 Qed.
+
+(** False grid equality implies grids differ. *)
 
 Lemma grid_eq_false_implies_grids_differ :
   forall g1 g2,
@@ -4451,6 +4738,8 @@ Proof.
     apply grid_eq_false_implies_grids_differ; assumption.
 Defined.
 
+(** Happiness is extensional with respect to grid cells. *)
+
 Lemma happy_extensional :
   forall tau g1 g2 p,
     (forall q, In q all_positions_grid -> get_cell g1 q = get_cell g2 q) ->
@@ -4470,6 +4759,8 @@ Proof.
   apply (neighbors_subset_all_positions p q).
   assumption.
 Qed.
+
+(** Extensionally equal grids have same stability. *)
 
 Lemma grid_extensional_stability :
   forall tau g1 g2,
@@ -4505,15 +4796,21 @@ Qed.
     preserves the cell structure. This captures the idea that two grids are
     "the same" up to renaming of positions. *)
 
+(** Position bijection preserves bounds. *)
+
 Definition pos_bijection (f : Pos -> Pos) : Prop :=
   (forall p, in_bounds p -> in_bounds (f p)) /\
   (forall p1 p2, in_bounds p1 -> in_bounds p2 -> f p1 = f p2 -> p1 = p2) /\
   (forall q, in_bounds q -> exists p, in_bounds p /\ f p = q).
 
+(** Grid isomorphism via position bijection. *)
+
 Definition grid_isomorphic (g1 g2 : Grid) : Prop :=
   exists (f : Pos -> Pos),
     pos_bijection f /\
     (forall p, in_bounds p -> get_cell g1 p = get_cell g2 (f p)).
+
+(** Identity is a bijection. *)
 
 Lemma pos_bijection_id :
   pos_bijection (fun p => p).
@@ -4653,6 +4950,8 @@ Proof.
   reflexivity.
 Qed.
 
+(** Inverse from list is surjective. *)
+
 Lemma inverse_from_list_surjective :
   forall f p,
     pos_bijection f ->
@@ -4675,6 +4974,8 @@ Proof.
     apply Hinj; assumption.
 Qed.
 
+(** Inverse from list is bijection. *)
+
 Lemma inverse_from_list_is_bijection :
   forall f,
     pos_bijection f ->
@@ -4687,6 +4988,8 @@ Proof.
   - apply (inverse_from_list_injective f); assumption.
   - apply (inverse_from_list_surjective f); assumption.
 Qed.
+
+(** Inverse from list is left inverse. *)
 
 Lemma inverse_from_list_left_inverse :
   forall f p,
@@ -4708,6 +5011,8 @@ Proof.
   apply Hinj; assumption.
 Qed.
 
+(** Inverse from list is right inverse. *)
+
 Lemma inverse_from_list_right_inverse :
   forall f q,
     pos_bijection f ->
@@ -4718,6 +5023,8 @@ Proof.
   destruct (inverse_from_list_correct f q Hbij Hq) as [_ H].
   assumption.
 Qed.
+
+(** Grid isomorphism is symmetric. *)
 
 Lemma grid_isomorphic_sym :
   forall g1 g2,
@@ -4738,6 +5045,8 @@ Proof.
     + rewrite Hfgp; reflexivity.
     + symmetry; apply Hcells; assumption.
 Qed.
+
+(** Composition of bijections is bijection. *)
 
 Lemma pos_bijection_compose :
   forall f g,
@@ -5108,6 +5417,8 @@ Proof.
     exact IH.
 Qed.
 
+(** Empty cells cause no change under step_position. *)
+
 Lemma micro_step_position_empty_no_change :
   forall tau g p,
     get_cell g p = Empty ->
@@ -5118,6 +5429,8 @@ Proof.
   rewrite Hempty.
   reflexivity.
 Qed.
+
+(** Happy agents cause no change under step_position. *)
 
 Lemma micro_step_position_happy_no_change :
   forall tau g p a,
@@ -5131,6 +5444,8 @@ Proof.
   rewrite Hhappy.
   reflexivity.
 Qed.
+
+(** Unhappy agents with no valid destination cause no change. *)
 
 Lemma micro_step_position_unhappy_no_dest_no_change :
   forall tau g p a,
@@ -5147,6 +5462,8 @@ Proof.
   reflexivity.
 Qed.
 
+(** Structure of step_position when an unhappy agent moves. *)
+
 Lemma micro_step_position_move_structure :
   forall tau g p a q,
     get_cell g p = Occupied a ->
@@ -5162,6 +5479,8 @@ Proof.
   reflexivity.
 Qed.
 
+(** Destination positions are always empty. *)
+
 Lemma micro_find_destination_gives_empty :
   forall tau g a q,
     find_destination tau g a = Some q ->
@@ -5173,6 +5492,8 @@ Proof.
   exact Hempty.
 Qed.
 
+(** Agents are happy at their destination positions. *)
+
 Lemma micro_find_destination_gives_happy :
   forall tau g a q,
     find_destination tau g a = Some q ->
@@ -5183,6 +5504,8 @@ Proof.
   destruct Hfind as [_ Hhappy].
   exact Hhappy.
 Qed.
+
+(** Destination positions are in bounds. *)
 
 Lemma micro_find_destination_in_bounds :
   forall tau g a q,
@@ -5199,6 +5522,8 @@ Proof.
   exact Hin.
 Qed.
 
+(** Happiness implies tolerance threshold satisfied. *)
+
 Lemma micro_happy_for_means_enough_same :
   forall tau g a q,
     happy_for tau g a q = true ->
@@ -5209,6 +5534,8 @@ Proof.
   apply Nat.leb_le.
   exact Hhappy.
 Qed.
+
+(** Unhappiness implies tolerance threshold not met. *)
 
 Lemma micro_unhappy_means_not_enough_same :
   forall tau g p a,
@@ -5223,6 +5550,8 @@ Proof.
   lia.
 Qed.
 
+(** Count skips happy positions in list. *)
+
 Lemma micro_count_unhappy_cons_happy :
   forall tau g p ps,
     happy tau g p = true ->
@@ -5234,6 +5563,8 @@ Proof.
   rewrite Hhappy.
   reflexivity.
 Qed.
+
+(** Count increments for unhappy positions in list. *)
 
 Lemma micro_count_unhappy_cons_unhappy :
   forall tau g p ps,
@@ -5247,6 +5578,8 @@ Proof.
   reflexivity.
 Qed.
 
+(** Empty cells are always happy. *)
+
 Lemma micro_empty_always_happy :
   forall tau g p,
     get_cell g p = Empty ->
@@ -5256,6 +5589,8 @@ Proof.
   apply empty_cell_always_happy.
   exact Hempty.
 Qed.
+
+(** Agents become happy after moving to destination. *)
 
 Lemma micro_moved_agent_becomes_happy :
   forall tau g p q a,
@@ -5277,6 +5612,8 @@ Proof.
   - left; reflexivity.
   - right; reflexivity.
 Defined.
+
+(** Unstable grids contain unhappy positions. *)
 
 Lemma micro_not_stable_means_exists_unhappy :
   forall tau g,
@@ -5304,6 +5641,8 @@ Proof.
     exact Hexists.
 Qed.
 
+(** Empty position list yields identity under step_positions. *)
+
 Lemma micro_step_positions_nil :
   forall tau g,
     step_positions tau [] g = g.
@@ -5312,6 +5651,8 @@ Proof.
   simpl.
   reflexivity.
 Qed.
+
+(** Step positions processes head then tail. *)
 
 Lemma micro_step_positions_cons :
   forall tau g p ps,
@@ -5323,6 +5664,8 @@ Proof.
   reflexivity.
 Qed.
 
+(** Step function defined as step_positions over all positions. *)
+
 Lemma micro_step_def :
   forall tau g,
     step tau g = step_positions tau all_positions_grid g.
@@ -5331,6 +5674,8 @@ Proof.
   unfold step.
   reflexivity.
 Qed.
+
+(** Wellformedness preserved by single step_position. *)
 
 Lemma micro_wellformed_after_step_position :
   forall tau g p,
@@ -5342,6 +5687,8 @@ Proof.
   exact Hwf.
 Qed.
 
+(** Wellformedness preserved by step_positions. *)
+
 Lemma micro_wellformed_after_step_positions :
   forall tau g ps,
     wellformed_grid g ->
@@ -5351,6 +5698,8 @@ Proof.
   apply step_positions_preserves_wellformed.
   exact Hwf.
 Qed.
+
+(** Equal wellformed grids agree on all positions. *)
 
 Lemma micro_finite_grid_configs :
   forall g1 g2 : Grid,
@@ -5365,6 +5714,8 @@ Proof.
   exact Hin.
 Qed.
 
+(** Stable grids preserve cells under step. *)
+
 Lemma micro_stable_step_identity_on_grid :
   forall tau g p,
     stable tau g ->
@@ -5375,6 +5726,8 @@ Proof.
   rewrite step_stable_fixed_point by assumption.
   reflexivity.
 Qed.
+
+(** Count unhappy is extensional with respect to happiness predicate. *)
 
 Lemma micro_count_unhappy_extensional :
   forall tau g1 g2 ps,
@@ -5389,6 +5742,8 @@ Proof.
     + reflexivity.
     + intros q Hq; apply Hext; right; assumption.
 Qed.
+
+(** Step position either preserves grid or performs a move. *)
 
 Lemma micro_step_position_changes_or_same :
   forall tau g p,
@@ -5409,6 +5764,8 @@ Proof.
       * left; reflexivity.
 Qed.
 
+(** Destination is different from source position. *)
+
 Lemma micro_find_destination_different_from_source :
   forall tau g p a q,
     get_cell g p = Occupied a ->
@@ -5421,6 +5778,8 @@ Proof.
   rewrite Hocc in Hfind.
   discriminate.
 Qed.
+
+(** After a move, source position becomes empty. *)
 
 Lemma micro_move_source_becomes_empty :
   forall tau g p q a,
@@ -5435,6 +5794,8 @@ Proof.
   rewrite get_set_same; reflexivity.
 Qed.
 
+(** After a move, destination position becomes occupied. *)
+
 Lemma micro_move_dest_becomes_occupied :
   forall tau g p q a,
     step_position tau g p = set_cell (set_cell g p Empty) q (Occupied a) ->
@@ -5445,6 +5806,8 @@ Proof.
   rewrite get_set_same; reflexivity.
 Qed.
 
+(** Count same agents in a list of cells. *)
+
 Fixpoint count_same_in_list (a : Agent) (cs : list Cell) : nat :=
   match cs with
   | [] => 0
@@ -5454,6 +5817,8 @@ Fixpoint count_same_in_list (a : Agent) (cs : list Cell) : nat :=
       then S (count_same_in_list a cs')
       else count_same_in_list a cs'
   end.
+
+(** count_same equals count_same_in_list. *)
 
 Lemma count_same_is_count_same_in_list :
   forall a cs,
@@ -5466,6 +5831,8 @@ Proof.
     + exact IH.
     + destruct (agent_eqb a a0); simpl; f_equal; exact IH.
 Qed.
+
+(** count_same is extensional with respect to grid cells. *)
 
 Lemma count_same_extensional :
   forall a g1 g2 ps,
@@ -5482,6 +5849,8 @@ Proof.
     + f_equal; apply IH; intros r Hr; apply Hext; right; exact Hr.
     + apply IH; intros r Hr; apply Hext; right; exact Hr.
 Qed.
+
+(** Agent move preserves cells elsewhere (not source or destination). *)
 
 Lemma micro_move_preserves_cell_elsewhere :
   forall g p q a r,
@@ -5500,6 +5869,8 @@ Proof.
   reflexivity.
 Qed.
 
+(** No-move step_position preserves all cells. *)
+
 Lemma micro_step_position_no_move_preserves_all_cells :
   forall tau g p r,
     step_position tau g p = g ->
@@ -5508,6 +5879,8 @@ Proof.
   intros tau g p r Hno_move.
   rewrite Hno_move; reflexivity.
 Qed.
+
+(** Moving agents have distinct source and destination. *)
 
 Lemma step_position_changed_when_moves :
   forall tau g p a q,
@@ -5523,6 +5896,8 @@ Proof.
   discriminate.
 Qed.
 
+(** Moves create a grid different from original at source position. *)
+
 Lemma step_position_move_creates_different_grid :
   forall tau g p a q,
     get_cell g p = Occupied a ->
@@ -5537,6 +5912,8 @@ Proof.
   rewrite Hcell.
   discriminate.
 Qed.
+
+(** Unchanged step_positions preserves all cells extensionally. *)
 
 Lemma step_positions_preserves_grid_extensionally :
   forall tau ps g,
@@ -5559,6 +5936,8 @@ Proof.
   - right. reflexivity.
 Defined.
 
+(** Search for an unhappy agent that can move. *)
+
 Fixpoint find_unhappy_can_move_aux (tau : nat) (g : Grid) (ps : list Pos) :
   option (Pos * Agent) :=
   match ps with
@@ -5577,6 +5956,8 @@ Fixpoint find_unhappy_can_move_aux (tau : nat) (g : Grid) (ps : list Pos) :
       end
   end.
 
+(** Empty cells are skipped in search. *)
+
 Lemma find_unhappy_can_move_aux_cons_empty :
   forall tau g p ps,
     get_cell g p = Empty ->
@@ -5585,6 +5966,8 @@ Proof.
   intros tau g p ps Hcell.
   simpl. rewrite Hcell. reflexivity.
 Qed.
+
+(** Happy agents are skipped in search. *)
 
 Lemma find_unhappy_can_move_aux_cons_happy :
   forall tau g p a ps,
@@ -5595,6 +5978,8 @@ Proof.
   intros tau g p a ps Hcell Hhappy.
   simpl. rewrite Hcell. rewrite Hhappy. reflexivity.
 Qed.
+
+(** Unhappy agents without destination are skipped. *)
 
 Lemma find_unhappy_can_move_aux_cons_unhappy_no_dest :
   forall tau g p a ps,
@@ -5607,6 +5992,8 @@ Proof.
   simpl. rewrite Hcell. rewrite Hhappy. rewrite Hno_dest. reflexivity.
 Qed.
 
+(** Unhappy movable agent found immediately returns result. *)
+
 Lemma find_unhappy_can_move_aux_cons_unhappy_has_dest :
   forall tau g p a ps q,
     get_cell g p = Occupied a ->
@@ -5617,6 +6004,8 @@ Proof.
   intros tau g p a ps q Hcell Hhappy Hdest.
   simpl. rewrite Hcell. rewrite Hhappy. rewrite Hdest. reflexivity.
 Qed.
+
+(** Found agent is in list, occupied, unhappy, and has valid destination. *)
 
 Lemma find_unhappy_can_move_aux_some :
   forall tau g ps p a,
@@ -5662,6 +6051,8 @@ Proof.
     + subst; left; reflexivity.
     + right; intros contra; inversion contra; contradiction.
 Defined.
+
+(** Grid unchanged implies stable if no stuck unhappy agents exist. *)
 
 Lemma grid_unchanged_implies_stable_if_no_stuck_unhappy :
   forall tau g,
@@ -5852,6 +6243,8 @@ Proof.
   apply micro_not_stable_means_exists_unhappy; assumption.
 Qed.
 
+(** Append distributes over step_positions. *)
+
 Lemma step_positions_app :
   forall tau ps1 ps2 g,
     step_positions tau (ps1 ++ ps2) g =
@@ -5863,6 +6256,8 @@ Proof.
   - apply IH.
 Qed.
 
+(** Find first position where two grids differ. *)
+
 Fixpoint find_grid_diff (g1 g2 : Grid) (ps : list Pos) : option Pos :=
   match ps with
   | [] => None
@@ -5872,6 +6267,8 @@ Fixpoint find_grid_diff (g1 g2 : Grid) (ps : list Pos) : option Pos :=
       | right _ => Some p
       end
   end.
+
+(** Found difference is in list and cells differ. *)
 
 Lemma find_grid_diff_some :
   forall g1 g2 ps p,
@@ -5888,6 +6285,8 @@ Proof.
     + injection Hfind as Hfind. subst p'.
       split; [left; reflexivity | assumption].
 Qed.
+
+(** No difference found means grids agree on all positions in list. *)
 
 Lemma find_grid_diff_none :
   forall g1 g2 ps,
@@ -5965,6 +6364,8 @@ Proof.
     discriminate.
 Qed.
 
+(** Unhappy movable agent has witness destination. *)
+
 Lemma find_unhappy_can_move_exists_witness :
   forall tau g p a,
     In p all_positions_grid ->
@@ -5976,6 +6377,8 @@ Proof.
   intros tau g p a Hin Hocc Hunhappy Hsome.
   destruct (find_destination tau g a) eqn:Hfind; [exists p0; reflexivity|contradiction].
 Qed.
+
+(** Unhappy movable agent appears in auxiliary search. *)
 
 Lemma find_unhappy_movable_in_aux :
   forall tau g p a q,
@@ -5992,6 +6395,8 @@ Proof.
   rewrite Hfind in Haux.
   discriminate.
 Qed.
+
+(** Occupied cells preserved when not at source position. *)
 
 Lemma step_position_preserves_occupied_neq_source :
   forall tau g p' p a_at_p,
@@ -6014,6 +6419,8 @@ Proof.
     assumption.
 Qed.
 
+(** Empty cells preserved when not source or destination. *)
+
 Lemma step_position_preserves_empty_neq_source_and_dest :
   forall tau g p' p,
     p' <> p ->
@@ -6034,6 +6441,8 @@ Proof.
   assumption.
 Qed.
 
+(** Cells preserved when position not equal to destination. *)
+
 Lemma step_position_preserves_cell_neq_dest :
   forall tau g p' p c q a,
     get_cell g p' = Occupied a ->
@@ -6052,6 +6461,8 @@ Proof.
   assumption.
 Qed.
 
+(** Empty position list preserves cells. *)
+
 Lemma step_positions_nil_preserves :
   forall tau g p c,
     get_cell g p = c ->
@@ -6059,6 +6470,8 @@ Lemma step_positions_nil_preserves :
 Proof.
   intros tau g p c Hcell. simpl. assumption.
 Qed.
+
+(** Occupied cells preserved when position not in processing list. *)
 
 Lemma step_positions_preserves_not_in_list :
   forall tau ps p a g,
@@ -6078,6 +6491,8 @@ Proof.
     apply (IH p a (step_position tau g p') Hnotin' Hafter).
 Qed.
 
+(** Empty destination becomes occupied after move. *)
+
 Lemma step_position_preserves_empty_when_dest_match :
   forall tau g p' p a,
     p' <> p ->
@@ -6093,6 +6508,8 @@ Proof.
   rewrite get_set_same.
   reflexivity.
 Qed.
+
+(** Empty cells remain empty when not source or destination. *)
 
 Lemma step_position_preserves_empty_neq_both :
   forall tau g p' p,
@@ -6112,6 +6529,8 @@ Proof.
   rewrite get_set_other by (intros C; subst; apply Hneq; reflexivity).
   assumption.
 Qed.
+
+(** Movable unhappy agent causes grid to change. *)
 
 Lemma movable_unhappy_implies_step_changes :
   forall tau g p a q,
@@ -6153,6 +6572,8 @@ Proof.
       exact IH.
 Qed.
 
+(** Source position becomes empty after move. *)
+
 Lemma step_position_source_empty_when_moves :
   forall tau g p a q,
     get_cell g p = Occupied a ->
@@ -6173,6 +6594,8 @@ Proof.
   reflexivity.
 Qed.
 
+(** Destination position becomes occupied after move. *)
+
 Lemma step_position_dest_occupied_when_moves :
   forall tau g p a q,
     get_cell g p = Occupied a ->
@@ -6188,6 +6611,8 @@ Proof.
   rewrite get_set_same.
   reflexivity.
 Qed.
+
+(** Other positions unchanged when agent moves. *)
 
 Lemma step_position_other_unchanged_when_moves :
   forall tau g p a q r,
@@ -6209,6 +6634,8 @@ Proof.
   rewrite get_set_other by exact Hneq_pr.
   reflexivity.
 Qed.
+
+(** No-move step_position preserves all cells. *)
 
 Lemma step_position_unchanged_when_no_move :
   forall tau g p r,
@@ -6238,6 +6665,8 @@ Proof.
       * left. reflexivity.
 Qed.
 
+(** Move changes exactly source and destination cells. *)
+
 Lemma step_position_changes_exactly_two_cells_when_moves :
   forall tau g p a q r,
     get_cell g p = Occupied a ->
@@ -6265,6 +6694,8 @@ Proof.
       discriminate.
 Qed.
 
+(** Unchanged step_position preserves cells. *)
+
 Lemma step_position_preserves_cells_when_no_change :
   forall tau g p r,
     step_position tau g p = g ->
@@ -6274,6 +6705,8 @@ Proof.
   rewrite Hno_change.
   reflexivity.
 Qed.
+
+(** Changed non-source cells must be destination. *)
 
 Lemma step_position_preserves_non_source_cells :
   forall tau g p r,
@@ -6310,6 +6743,8 @@ Proof.
     apply (Hnot_dest a q); assumption.
 Qed.
 
+(** Empty position list preserves all cells. *)
+
 Lemma step_positions_nil_preserves_cells :
   forall tau g r,
     get_cell (step_positions tau [] g) r = get_cell g r.
@@ -6318,6 +6753,8 @@ Proof.
   simpl.
   reflexivity.
 Qed.
+
+(** Empty cells cause no grid change. *)
 
 Lemma step_position_empty_unchanged :
   forall tau g p r,
@@ -6329,6 +6766,8 @@ Proof.
   rewrite Hempty.
   reflexivity.
 Qed.
+
+(** Happy agents cause no grid change. *)
 
 Lemma step_position_happy_unchanged :
   forall tau g p a r,
@@ -6342,6 +6781,8 @@ Proof.
   rewrite Hhappy.
   reflexivity.
 Qed.
+
+(** Unhappy agents without destination cause no grid change. *)
 
 Lemma step_position_unhappy_no_dest_unchanged :
   forall tau g p a r,
@@ -6358,6 +6799,8 @@ Proof.
   reflexivity.
 Qed.
 
+(** Structure of step_position when move occurs. *)
+
 Lemma step_position_with_move_structure :
   forall tau g p a q,
     get_cell g p = Occupied a ->
@@ -6373,6 +6816,8 @@ Proof.
   reflexivity.
 Qed.
 
+(** Source becomes empty after set_cell operations for move. *)
+
 Lemma moved_source_is_empty :
   forall g p a q,
     p <> q ->
@@ -6384,6 +6829,8 @@ Proof.
   rewrite get_set_same.
   reflexivity.
 Qed.
+
+(** Destination becomes occupied after set_cell operations for move. *)
 
 Lemma moved_dest_is_occupied :
   forall g p a q,
@@ -7702,15 +8149,7 @@ Qed.
    GUARANTEED TERMINATION: Convergence to Fixpoint or Cycle
    ----------------------------------------------------------------------------- *)
 
-Axiom pigeonhole_grids_existence :
-  forall (gs : list Grid),
-    wellformed_grid empty_grid ->
-    (forall g, In g gs -> wellformed_grid g) ->
-    (length gs > 3 ^ (grid_size * grid_size))%nat ->
-    exists i j, (i < j)%nat /\ (j < length gs)%nat /\
-      nth i gs empty_grid = nth j gs empty_grid.
-
-(* === Micro-Lemma 1: List membership decidability === *)
+(** Decidable membership in lists of wellformed grids. *)
 
 Lemma in_dec_grid :
   forall (g : Grid) (gs : list Grid),
@@ -7734,7 +8173,7 @@ Proof.
         -- apply Hnotin. exact Hin'.
 Defined.
 
-(* === Micro-Lemma 2: Iteration sequence wellformedness === *)
+(** All grids in an iteration sequence preserve wellformedness. *)
 
 Lemma iter_sequence_all_wellformed :
   forall tau g n,
@@ -7747,7 +8186,7 @@ Proof.
   assumption.
 Qed.
 
-(* === Micro-Lemma 3: Grid in iteration sequence === *)
+(** Each iterate appears in the iteration sequence. *)
 
 Lemma grid_in_iter_sequence :
   forall tau g n k,
@@ -7766,7 +8205,7 @@ Proof.
       lia.
 Qed.
 
-(* === Micro-Lemma 4: Iteration sequence has correct length === *)
+(** Iteration sequence length is S n. *)
 
 Lemma iter_sequence_has_S_n_elements :
   forall tau g n,
@@ -7776,17 +8215,7 @@ Proof.
   apply iter_sequence_length.
 Qed.
 
-(* === Micro-Lemma 5: Pigeonhole principle axiom === *)
-
-(** The pigeonhole principle states that if we have more items than boxes,
-    some box must contain multiple items. For grids, this means if we have
-    more than 3^(grid_size²) grid states in a sequence, some grid must repeat.
-
-    This is a standard mathematical fact. A full proof would require finite
-    type infrastructure from libraries like math-comp. We axiomatize it here. *)
-
-
-(* === Micro-Lemma 6a: Map nth extraction for iteration sequences === *)
+(** Mapping iteration over sequences preserves nth element structure. *)
 
 Lemma map_iter_nth :
   forall tau g i n d,
@@ -7795,6 +8224,8 @@ Lemma map_iter_nth :
 Proof.
   intros. apply map_nth.
 Qed.
+
+(** Accessing iteration map with empty_grid default yields i-th iterate. *)
 
 Lemma map_iter_nth_empty_default :
   forall tau g i n,
@@ -7810,6 +8241,8 @@ Proof.
   - rewrite map_length, seq_length. assumption.
 Qed.
 
+(** Sequence starting at 0 has nth element equal to index. *)
+
 Lemma seq_nth_offset_zero :
   forall i n,
     (i < S n)%nat ->
@@ -7820,50 +8253,7 @@ Proof.
   simpl. reflexivity.
 Qed.
 
-(* === Micro-Lemma 6: Within n+1 steps, some grid repeats === *)
-
-Lemma repeat_within_bound :
-  forall tau g n,
-    wellformed_grid g ->
-    (n >= grid_configs_finite)%nat ->
-    exists i j, (i < j)%nat /\ (j <= n)%nat /\
-      Nat.iter i (step tau) g = Nat.iter j (step tau) g.
-Proof.
-  intros tau g n Hwf Hn.
-  pose (seq := map (fun k => Nat.iter k (step tau) g) (seq 0 (S n))).
-  assert (Hlen: length seq = S n).
-  { unfold seq. rewrite map_length, seq_length. reflexivity. }
-  assert (Hseq_wf: forall g', In g' seq -> wellformed_grid g').
-  { intros g' Hin. unfold seq in Hin. apply in_map_iff in Hin.
-    destruct Hin as [k [Heq Hk_in]]. subst g'.
-    apply step_iter_wellformed. exact Hwf. }
-  assert (Hbound: (length seq > 3 ^ (grid_size * grid_size))%nat).
-  { rewrite Hlen. unfold grid_configs_finite in Hn. lia. }
-  specialize (pigeonhole_grids_existence seq empty_grid_wellformed Hseq_wf Hbound) as [i [j [Hij [Hj Heq]]]].
-  exists i, j.
-  repeat split; try assumption.
-  - rewrite Hlen in Hj. lia.
-  - unfold seq in Heq.
-    rewrite map_iter_nth_empty_default in Heq by (rewrite Hlen in Hj; lia).
-    rewrite map_iter_nth_empty_default in Heq by (rewrite Hlen in Hj; lia).
-    exact Heq.
-Qed.
-
-(* === Micro-Lemma 7: Smaller bound works === *)
-
-Lemma repeat_within_configs_finite :
-  forall tau g,
-    wellformed_grid g ->
-    exists i j, (i < j)%nat /\ (j <= S grid_configs_finite)%nat /\
-      Nat.iter i (step tau) g = Nat.iter j (step tau) g.
-Proof.
-  intros tau g Hwf.
-  apply repeat_within_bound with (n := S grid_configs_finite).
-  - assumption.
-  - lia.
-Qed.
-
-(* === Micro-Lemma 8: Repeated grid means fixpoint or cycle === *)
+(** If iter^i = iter^j for i < j, then either iter^i is a fixpoint or has period j-i. *)
 
 Lemma repeat_implies_fixpoint_or_cycle :
   forall tau g i j,
@@ -7888,7 +8278,7 @@ Proof.
     apply step_iter_repeat_implies_period; assumption.
 Qed.
 
-(* === Micro-Lemma 9: Fixpoint stays fixed forever === *)
+(** Fixpoint at iteration n implies all future iterations remain at that fixpoint. *)
 
 Lemma fixpoint_all_future_equal :
   forall tau g n m,
@@ -7901,7 +8291,7 @@ Proof.
   apply iter_fixpoint_stable; assumption.
 Qed.
 
-(* === Supporting Lemmas for Periodicity === *)
+(** Shifting by multiples of period p returns to original state. *)
 
 Lemma period_shift_iter :
   forall tau g n p k,
@@ -7913,6 +8303,8 @@ Proof.
   assumption.
 Qed.
 
+(** Decomposition of iteration: iter^(n+k) = iter^k ∘ iter^n. *)
+
 Lemma iter_decompose_offset :
   forall tau g n offset,
     Nat.iter (n + offset) (step tau) g = Nat.iter offset (step tau) (Nat.iter n (step tau) g).
@@ -7920,6 +8312,8 @@ Proof.
   intros tau g n offset.
   apply step_iter_add.
 Qed.
+
+(** Division algorithm: a = (a÷b)·b + (a mod b). *)
 
 Lemma mod_decomposition :
   forall a b, (b > 0)%nat -> a = (a / b * b + a mod b)%nat.
@@ -7929,6 +8323,8 @@ Proof.
   apply Nat.div_mod.
   lia.
 Qed.
+
+(** Iteration commutes with period shifts. *)
 
 Lemma iter_period_commute :
   forall tau g n p k r,
@@ -7942,6 +8338,8 @@ Proof.
   assumption.
 Qed.
 
+(** Reassociating nested iterations: iter^(a+b+c) = iter^c ∘ iter^b ∘ iter^a. *)
+
 Lemma iter_add_reassoc :
   forall tau g a b c,
     Nat.iter (a + b + c) (step tau) g = Nat.iter c (step tau) (Nat.iter b (step tau) (Nat.iter a (step tau) g)).
@@ -7953,6 +8351,8 @@ Proof.
   reflexivity.
 Qed.
 
+(** Alias for iter_add_reassoc. *)
+
 Lemma iter_split_three :
   forall tau g a b c,
     Nat.iter (a + b + c) (step tau) g =
@@ -7960,6 +8360,8 @@ Lemma iter_split_three :
 Proof.
   intros. apply iter_add_reassoc.
 Qed.
+
+(** Adding multiples of b does not affect (mod b). *)
 
 Lemma mod_add_mult_vanish :
   forall a b k,
@@ -7972,6 +8374,8 @@ Proof.
   reflexivity.
 Qed.
 
+(** Modulo is idempotent. *)
+
 Lemma mod_mod_idem :
   forall a b,
     (b > 0)%nat ->
@@ -7981,12 +8385,16 @@ Proof.
   rewrite Nat.mod_mod; [reflexivity | lia].
 Qed.
 
+(** Associativity of addition for iteration counts. *)
+
 Lemma iter_add_reassoc_nat :
   forall tau g a b c,
     Nat.iter (a + (b + c)) (step tau) g = Nat.iter (a + b + c) (step tau) g.
 Proof.
   intros. f_equal. lia.
 Qed.
+
+(** Adding multiples of period p to iteration count cancels out. *)
 
 Lemma iter_add_cancel_period :
   forall tau g n p k r,
@@ -8006,6 +8414,8 @@ Proof.
   reflexivity.
 Qed.
 
+(** Flattened version of period cancellation. *)
+
 Lemma iter_add_cancel_period_flat :
   forall tau g n p k r,
     has_period tau (Nat.iter n (step tau) g) p ->
@@ -8016,6 +8426,8 @@ Proof.
   apply iter_add_cancel_period.
   assumption.
 Qed.
+
+(** Advancing by period with offset: iter^(n+r) = iter^(n+p+r) when r < p. *)
 
 Lemma period_advance_offset :
   forall tau g n p r,
@@ -8032,6 +8444,8 @@ Proof.
   exact Hper.
 Qed.
 
+(** Advancing by q periods with offset r. *)
+
 Lemma period_advance_by_q :
   forall tau g n p q r,
     has_period tau (Nat.iter n (step tau) g) p ->
@@ -8041,6 +8455,8 @@ Proof.
   apply iter_add_cancel_period_flat.
   exact Hper.
 Qed.
+
+(** Adding one period to iteration count with offset. *)
 
 Lemma add_period_to_offset :
   forall tau g n p r,
@@ -8054,6 +8470,8 @@ Proof.
   assumption.
 Qed.
 
+(** Adding p equals adding (q+1)p for periodic systems. *)
+
 Lemma period_add_p_eq_qplus1_mult_p :
   forall tau g n p q,
     has_period tau (Nat.iter n (step tau) g) p ->
@@ -8066,6 +8484,8 @@ Proof.
   apply period_advance_by_q.
   exact Hper.
 Qed.
+
+(** Variant of period_add_p_eq_qplus1_mult_p with alternative proof. *)
 
 Lemma period_add_p_plus_r_eq_qplus1_mult_p :
   forall tau g n p q,
@@ -8090,7 +8510,7 @@ Proof.
   exact H.
 Qed.
 
-(* === Micro-Lemma 10: Cycle repeats forever === *)
+(** Periodic behavior: any future iteration can be expressed as n + kp + r with r < p. *)
 
 Lemma cycle_repeats_forever :
   forall tau g n p m,
@@ -8119,7 +8539,7 @@ Proof.
   exact Hper'.
 Qed.
 
-(* === Micro-Lemma 11: Eventually periodic behavior === *)
+(** Eventually periodic systems return to a previous state within one period. *)
 
 Lemma eventually_periodic :
   forall tau g n,
@@ -8148,7 +8568,7 @@ Proof.
       reflexivity.
 Qed.
 
-(* === Micro-Lemma 12: Fixpoint at n means fixpoint forever === *)
+(** Fixpoint stability: if iter^n is a fixpoint, so are all iter^m for m ≥ n. *)
 
 Lemma fixpoint_at_n_means_stable_forever :
   forall tau g n,
@@ -8164,6 +8584,8 @@ Proof.
   assumption.
 Qed.
 
+(** Decidable equality for iteration pairs. *)
+
 Lemma iter_pair_eq_dec :
   forall tau g i j,
     wellformed_grid g ->
@@ -8174,6 +8596,8 @@ Proof.
   apply grid_eq_decidable; apply step_iter_wellformed; assumption.
 Defined.
 
+(** Search for an earlier iterate matching a target iteration. *)
+
 Fixpoint find_match_with_target (tau : nat) (g : Grid) (j_target : nat) (i_max : nat) : option nat :=
   match i_max with
   | O => None
@@ -8182,6 +8606,8 @@ Fixpoint find_match_with_target (tau : nat) (g : Grid) (j_target : nat) (i_max :
       then Some i'
       else find_match_with_target tau g j_target i'
   end.
+
+(** If find_match_with_target returns Some i, then iter^i = iter^j_target. *)
 
 Lemma find_match_some :
   forall tau g j_target i_max i,
@@ -8199,6 +8625,8 @@ Proof.
       apply step_iter_wellformed; assumption.
     + destruct (IH Hfind) as [Hlt Heq_i]. split. lia. exact Heq_i.
 Qed.
+
+(** If find_match_with_target returns None, no match exists below i_max. *)
 
 Lemma find_match_none :
   forall tau g j_target i_max,
@@ -8218,6 +8646,8 @@ Proof.
         rewrite Htrue in Heq. discriminate.
       * apply IH. exact Hnone. lia.
 Qed.
+
+(** find_match_with_target returns the largest index with a match. *)
 
 Lemma find_match_largest :
   forall tau g j_target i_max i_found,
@@ -8239,7 +8669,7 @@ Proof.
       * apply IH with (i_found := i_found). exact Hfind. lia.
 Qed.
 
-(* === Micro-Lemma 14: First repeat determines behavior === *)
+(** First repetition characterizes long-term behavior: either period from origin or eventual period. *)
 
 Lemma first_repeat_characterizes :
   forall tau g i j,
@@ -8268,27 +8698,7 @@ Proof.
     symmetry. exact Heq.
 Qed.
 
-(* === MAIN THEOREM 1: Guaranteed Termination to Periodic Behavior === *)
-
-Theorem guaranteed_termination_to_periodic :
-  forall tau g,
-    wellformed_grid g ->
-    exists n, (n <= S grid_configs_finite)%nat /\
-      (is_fixpoint tau (Nat.iter n (step tau) g) \/
-       exists p, (0 < p)%nat /\ (p <= S grid_configs_finite)%nat /\
-         has_period tau (Nat.iter n (step tau) g) p).
-Proof.
-  intros tau g Hwf.
-  destruct (repeat_within_configs_finite tau g Hwf) as [i [j [Hij [Hj Heq]]]].
-  destruct (repeat_implies_fixpoint_or_cycle tau g i j Hwf Hij Heq) as [Hfix | Hcycle].
-  - exists i. split; [lia | left; assumption].
-  - exists i. split; [lia | right].
-    destruct Hcycle as [Hpos Hper].
-    exists (j - i)%nat.
-    repeat split; try assumption; lia.
-Qed.
-
-(* === Micro-Lemma 15: Decidable check for fixpoint within bound === *)
+(** Constructive search for a fixpoint within first n iterations. *)
 
 Lemma decidable_fixpoint_within_bound :
   forall tau g n,
@@ -8328,7 +8738,7 @@ Proof.
         -- apply Hnone. lia.
 Qed.
 
-(* === Micro-Lemma 16a: Decidable period check at specific offset === *)
+(** Constructive search for period at offset k within bound n. *)
 
 Lemma decidable_period_at_offset :
   forall tau g k n,
@@ -8360,7 +8770,7 @@ Proof.
         -- apply Hnone_p. split; [exact Hpos | lia].
 Qed.
 
-(* === Micro-Lemma 16b: Check specific period at all offsets === *)
+(** Constructive search for specific period p at any offset within bound n. *)
 
 Lemma decidable_period_all_offsets :
   forall tau g p n,
@@ -8401,7 +8811,7 @@ Proof.
         -- apply Hnone. lia.
 Qed.
 
-(* === Micro-Lemma 16: Decidable check for cycle within bound === *)
+(** Constructive search for any periodic behavior (any period at any offset) within bound n. *)
 
 Lemma decidable_cycle_within_bound :
   forall tau g n,
@@ -8436,86 +8846,7 @@ Proof.
               ** lia.
 Qed.
 
-(* === MAIN THEOREM 2: Constructive Termination === *)
-
-Theorem constructive_termination :
-  forall tau g,
-    wellformed_grid g ->
-    {n : nat | (n <= S grid_configs_finite)%nat /\
-      is_fixpoint tau (Nat.iter n (step tau) g)} +
-    {n : nat & {p : nat | (n <= S grid_configs_finite)%nat /\
-      (0 < p <= S grid_configs_finite)%nat /\
-      has_period tau (Nat.iter n (step tau) g) p}}.
-Proof.
-  intros tau g Hwf.
-  (* First check for cycles *)
-  destruct (decidable_cycle_within_bound tau g (S grid_configs_finite) Hwf) as [[k [p Hcycle]] | Hno_cycle].
-  - (* Cycle found *)
-    right. exists k. exists p.
-    destruct Hcycle as [Hk [Hpos [Hp Hper]]].
-    split; [exact Hk | split; [split; [exact Hpos | exact Hp] | exact Hper]].
-  - (* No cycle, check for fixpoint *)
-    destruct (decidable_fixpoint_within_bound tau g (S grid_configs_finite) Hwf) as [[n Hfix] | Hno_fix].
-    + (* Fixpoint found *)
-      left. exists n. exact Hfix.
-    + (* Neither fixpoint nor cycle - impossible! *)
-      exfalso.
-      (* By guaranteed_termination_to_periodic, either fixpoint or cycle must exist *)
-      destruct (guaranteed_termination_to_periodic tau g Hwf) as [n [Hn [Hfix | [p [Hpos [Hp Hper]]]]]].
-      * (* Fixpoint exists - contradiction with Hno_fix *)
-        apply (Hno_fix n).
-        -- exact Hn.
-        -- exact Hfix.
-      * (* Cycle exists - contradiction with Hno_cycle *)
-        apply (Hno_cycle n p).
-        -- exact Hn.
-        -- exact Hpos.
-        -- exact Hp.
-        -- exact Hper.
-Qed.
-
-(* === MAIN THEOREM 3: Every Execution Converges === *)
-
-Theorem every_execution_converges :
-  forall tau g,
-    wellformed_grid g ->
-    (exists n, is_fixpoint tau (Nat.iter n (step tau) g)) \/
-    (exists n p, (0 < p)%nat /\ has_period tau (Nat.iter n (step tau) g) p).
-Proof.
-  intros tau g Hwf.
-  destruct (guaranteed_termination_to_periodic tau g Hwf) as [n [Hn [Hfix | Hcycle]]].
-  - left. exists n. assumption.
-  - right. destruct Hcycle as [p [Hpos [Hp Hper]]].
-    exists n, p. split; assumption.
-Qed.
-
-(* === MAIN THEOREM 4: Bounded Convergence Time === *)
-
-Theorem bounded_convergence_time :
-  forall tau g,
-    wellformed_grid g ->
-    exists n, (n <= S grid_configs_finite)%nat /\
-      (forall m, (m >= n)%nat ->
-        (is_fixpoint tau (Nat.iter n (step tau) g) ->
-          Nat.iter m (step tau) g = Nat.iter n (step tau) g) /\
-        (forall p, has_period tau (Nat.iter n (step tau) g) p ->
-          exists k, (k >= n)%nat /\ (k <= m)%nat /\
-            Nat.iter m (step tau) g = Nat.iter k (step tau) g)).
-Proof.
-  intros tau g Hwf.
-  destruct (guaranteed_termination_to_periodic tau g Hwf) as [n [Hn Hbehavior]].
-  exists n.
-  split; [assumption|].
-  intros m Hm.
-  split.
-  - intros Hfix.
-    apply fixpoint_all_future_equal; assumption.
-  - intros p Hperiod.
-    apply eventually_periodic; try assumption.
-    exists p. split; [destruct Hperiod; assumption | assumption].
-Qed.
-
-(* === COROLLARY: Decidable Long-Term Behavior === *)
+(** Non-fixpoint grid at origin implies non-fixpoint at iter^0. *)
 
 Lemma not_fixpoint_at_zero :
   forall tau g,
@@ -8528,6 +8859,8 @@ Proof.
   - simpl. exact Hnfix.
 Qed.
 
+(** Step position unchanged for empty cells or happy agents. *)
+
 Lemma step_position_unchanged_if_happy_or_empty :
   forall tau g p,
     (get_cell g p = Empty \/ happy tau g p = true) ->
@@ -8537,6 +8870,8 @@ Proof.
   - apply step_position_when_empty_preserves_grid. exact Hempty.
   - apply step_position_when_happy_preserves_grid. exact Hhappy.
 Qed.
+
+(** Unstable non-fixpoint grids provide witness at iteration 0. *)
 
 Lemma not_stable_not_fixpoint_implies_witness :
   forall tau g,
@@ -8550,49 +8885,6 @@ Proof.
   - pose proof (grid_configs_bound_positive). lia.
   - simpl. exact Hnfix.
 Qed.
-
-(* === Termination Characterization === *)
-
-Theorem complete_termination :
-  forall tau g,
-    wellformed_grid g ->
-    exists n_bound, (n_bound = S grid_configs_finite) /\
-      (exists n, (n <= n_bound)%nat /\
-        ((is_fixpoint tau (Nat.iter n (step tau) g) /\
-          forall m, (m >= n)%nat ->
-            Nat.iter m (step tau) g = Nat.iter n (step tau) g) \/
-         (exists p, (0 < p <= n_bound)%nat /\
-           has_period tau (Nat.iter n (step tau) g) p /\
-           forall m, (m >= n)%nat ->
-             exists k, (n <= k <= m)%nat /\
-               Nat.iter m (step tau) g = Nat.iter k (step tau) g))).
-Proof.
-  intros tau g Hwf.
-  exists (S grid_configs_finite).
-  split; [reflexivity|].
-  destruct (guaranteed_termination_to_periodic tau g Hwf) as [n [Hn [Hfix | Hcycle]]].
-  - (* Fixpoint case *)
-    exists n.
-    split; [assumption|].
-    left.
-    split; [assumption|].
-    intros m Hm.
-    apply fixpoint_all_future_equal; assumption.
-  - (* Cycle case *)
-    destruct Hcycle as [p [Hpos [Hp Hper]]].
-    exists n.
-    split; [assumption|].
-    right.
-    exists p.
-    split; [lia|].
-    split; [assumption|].
-    intros m Hm.
-    destruct (eventually_periodic tau g n Hwf (ex_intro _ p (conj Hpos Hper)) m Hm)
-      as [k [Hk_ge [Hk_le Heq]]].
-    exists k.
-    split; [lia | assumption].
-Qed.
-
 
 End SchellingModel.
 
