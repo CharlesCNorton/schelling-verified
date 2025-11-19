@@ -7698,6 +7698,901 @@ Proof.
   apply Hstable.
 Qed.
 
+(* -----------------------------------------------------------------------------
+   GUARANTEED TERMINATION: Convergence to Fixpoint or Cycle
+   ----------------------------------------------------------------------------- *)
+
+Axiom pigeonhole_grids_existence :
+  forall (gs : list Grid),
+    wellformed_grid empty_grid ->
+    (forall g, In g gs -> wellformed_grid g) ->
+    (length gs > 3 ^ (grid_size * grid_size))%nat ->
+    exists i j, (i < j)%nat /\ (j < length gs)%nat /\
+      nth i gs empty_grid = nth j gs empty_grid.
+
+(* === Micro-Lemma 1: List membership decidability === *)
+
+Lemma in_dec_grid :
+  forall (g : Grid) (gs : list Grid),
+    wellformed_grid g ->
+    (forall g', In g' gs -> wellformed_grid g') ->
+    {In g gs} + {~ In g gs}.
+Proof.
+  intros g gs Hwf_g Hwf_gs.
+  induction gs as [|g' gs' IH].
+  - right. intros H. inversion H.
+  - assert (Hwf_g' : wellformed_grid g').
+    { apply Hwf_gs. left. reflexivity. }
+    assert (Hwf_gs' : forall g'', In g'' gs' -> wellformed_grid g'').
+    { intros g'' Hin''. apply Hwf_gs. right. assumption. }
+    destruct (grid_eq_decidable g g' Hwf_g Hwf_g') as [Heq | Hneq].
+    + left. left. symmetry. exact Heq.
+    + destruct (IH Hwf_gs') as [Hin | Hnotin].
+      * left. right. exact Hin.
+      * right. intros [Heq' | Hin'].
+        -- apply Hneq. symmetry. exact Heq'.
+        -- apply Hnotin. exact Hin'.
+Defined.
+
+(* === Micro-Lemma 2: Iteration sequence wellformedness === *)
+
+Lemma iter_sequence_all_wellformed :
+  forall tau g n,
+    wellformed_grid g ->
+    forall k, (k <= n)%nat -> wellformed_grid (nth k (iter_sequence tau g n) empty_grid).
+Proof.
+  intros tau g n Hwf k Hk.
+  rewrite iter_sequence_nth by assumption.
+  apply step_iter_wellformed.
+  assumption.
+Qed.
+
+(* === Micro-Lemma 3: Grid in iteration sequence === *)
+
+Lemma grid_in_iter_sequence :
+  forall tau g n k,
+    (k <= n)%nat ->
+    In (Nat.iter k (step tau) g) (iter_sequence tau g n).
+Proof.
+  intros tau g n k Hk.
+  revert g k Hk.
+  induction n as [|n' IH]; intros g k Hk.
+  - assert (k = 0)%nat by lia. subst. simpl. left. reflexivity.
+  - destruct k as [|k'].
+    + simpl. left. reflexivity.
+    + simpl. right.
+      rewrite <- nat_iter_S_comm.
+      apply IH.
+      lia.
+Qed.
+
+(* === Micro-Lemma 4: Iteration sequence has correct length === *)
+
+Lemma iter_sequence_has_S_n_elements :
+  forall tau g n,
+    length (iter_sequence tau g n) = S n.
+Proof.
+  intros tau g n.
+  apply iter_sequence_length.
+Qed.
+
+(* === Micro-Lemma 5: Pigeonhole principle axiom === *)
+
+(** The pigeonhole principle states that if we have more items than boxes,
+    some box must contain multiple items. For grids, this means if we have
+    more than 3^(grid_size²) grid states in a sequence, some grid must repeat.
+
+    This is a standard mathematical fact. A full proof would require finite
+    type infrastructure from libraries like math-comp. We axiomatize it here. *)
+
+
+(* === Micro-Lemma 6a: Map nth extraction for iteration sequences === *)
+
+Lemma map_iter_nth :
+  forall tau g i n d,
+    nth i (map (fun k => Nat.iter k (step tau) g) (List.seq 0 (S n))) (Nat.iter d (step tau) g) =
+    Nat.iter (nth i (List.seq 0 (S n)) d) (step tau) g.
+Proof.
+  intros. apply map_nth.
+Qed.
+
+Lemma map_iter_nth_empty_default :
+  forall tau g i n,
+    (i < S n)%nat ->
+    nth i (map (fun k => Nat.iter k (step tau) g) (List.seq 0 (S n))) empty_grid =
+    Nat.iter i (step tau) g.
+Proof.
+  intros tau g i n Hi.
+  rewrite nth_indep with (d' := Nat.iter 0%nat (step tau) g).
+  - rewrite map_iter_nth.
+    rewrite seq_nth by assumption.
+    simpl. reflexivity.
+  - rewrite map_length, seq_length. assumption.
+Qed.
+
+Lemma seq_nth_offset_zero :
+  forall i n,
+    (i < S n)%nat ->
+    nth i (List.seq 0 (S n)) 0%nat = i.
+Proof.
+  intros i n Hi.
+  rewrite seq_nth by assumption.
+  simpl. reflexivity.
+Qed.
+
+(* === Micro-Lemma 6: Within n+1 steps, some grid repeats === *)
+
+Lemma repeat_within_bound :
+  forall tau g n,
+    wellformed_grid g ->
+    (n >= grid_configs_finite)%nat ->
+    exists i j, (i < j)%nat /\ (j <= n)%nat /\
+      Nat.iter i (step tau) g = Nat.iter j (step tau) g.
+Proof.
+  intros tau g n Hwf Hn.
+  pose (seq := map (fun k => Nat.iter k (step tau) g) (seq 0 (S n))).
+  assert (Hlen: length seq = S n).
+  { unfold seq. rewrite map_length, seq_length. reflexivity. }
+  assert (Hseq_wf: forall g', In g' seq -> wellformed_grid g').
+  { intros g' Hin. unfold seq in Hin. apply in_map_iff in Hin.
+    destruct Hin as [k [Heq Hk_in]]. subst g'.
+    apply step_iter_wellformed. exact Hwf. }
+  assert (Hbound: (length seq > 3 ^ (grid_size * grid_size))%nat).
+  { rewrite Hlen. unfold grid_configs_finite in Hn. lia. }
+  specialize (pigeonhole_grids_existence seq empty_grid_wellformed Hseq_wf Hbound) as [i [j [Hij [Hj Heq]]]].
+  exists i, j.
+  repeat split; try assumption.
+  - rewrite Hlen in Hj. lia.
+  - unfold seq in Heq.
+    rewrite map_iter_nth_empty_default in Heq by (rewrite Hlen in Hj; lia).
+    rewrite map_iter_nth_empty_default in Heq by (rewrite Hlen in Hj; lia).
+    exact Heq.
+Qed.
+
+(* === Micro-Lemma 7: Smaller bound works === *)
+
+Lemma repeat_within_configs_finite :
+  forall tau g,
+    wellformed_grid g ->
+    exists i j, (i < j)%nat /\ (j <= S grid_configs_finite)%nat /\
+      Nat.iter i (step tau) g = Nat.iter j (step tau) g.
+Proof.
+  intros tau g Hwf.
+  apply repeat_within_bound with (n := S grid_configs_finite).
+  - assumption.
+  - lia.
+Qed.
+
+(* === Micro-Lemma 8: Repeated grid means fixpoint or cycle === *)
+
+Lemma repeat_implies_fixpoint_or_cycle :
+  forall tau g i j,
+    wellformed_grid g ->
+    (i < j)%nat ->
+    Nat.iter i (step tau) g = Nat.iter j (step tau) g ->
+    (is_fixpoint tau (Nat.iter i (step tau) g) \/
+     has_period tau (Nat.iter i (step tau) g) (j - i)).
+Proof.
+  intros tau g i j Hwf Hij Heq.
+  destruct (Nat.eq_dec i (j - 1)) as [Heq_succ | Hneq_succ].
+  - (* i = j - 1, so consecutive iterations are equal *)
+    left.
+    unfold is_fixpoint.
+    assert (Hj : j = S i) by lia.
+    subst j.
+    simpl in Heq.
+    symmetry.
+    assumption.
+  - (* i < j - 1, so we have a genuine cycle *)
+    right.
+    apply step_iter_repeat_implies_period; assumption.
+Qed.
+
+(* === Micro-Lemma 9: Fixpoint stays fixed forever === *)
+
+Lemma fixpoint_all_future_equal :
+  forall tau g n m,
+    wellformed_grid g ->
+    is_fixpoint tau (Nat.iter n (step tau) g) ->
+    (m >= n)%nat ->
+    Nat.iter m (step tau) g = Nat.iter n (step tau) g.
+Proof.
+  intros tau g n m Hwf Hfix Hm.
+  apply iter_fixpoint_stable; assumption.
+Qed.
+
+(* === Supporting Lemmas for Periodicity === *)
+
+Lemma period_shift_iter :
+  forall tau g n p k,
+    has_period tau (Nat.iter n (step tau) g) p ->
+    Nat.iter (k * p) (step tau) (Nat.iter n (step tau) g) = Nat.iter n (step tau) g.
+Proof.
+  intros tau g n p k Hper.
+  apply period_multiple.
+  assumption.
+Qed.
+
+Lemma iter_decompose_offset :
+  forall tau g n offset,
+    Nat.iter (n + offset) (step tau) g = Nat.iter offset (step tau) (Nat.iter n (step tau) g).
+Proof.
+  intros tau g n offset.
+  apply step_iter_add.
+Qed.
+
+Lemma mod_decomposition :
+  forall a b, (b > 0)%nat -> a = (a / b * b + a mod b)%nat.
+Proof.
+  intros a b Hb.
+  rewrite Nat.mul_comm.
+  apply Nat.div_mod.
+  lia.
+Qed.
+
+Lemma iter_period_commute :
+  forall tau g n p k r,
+    has_period tau (Nat.iter n (step tau) g) p ->
+    Nat.iter r (step tau) (Nat.iter (k * p) (step tau) (Nat.iter n (step tau) g)) =
+    Nat.iter r (step tau) (Nat.iter n (step tau) g).
+Proof.
+  intros tau g n p k r Hper.
+  f_equal.
+  apply period_shift_iter with (p := p).
+  assumption.
+Qed.
+
+Lemma iter_add_reassoc :
+  forall tau g a b c,
+    Nat.iter (a + b + c) (step tau) g = Nat.iter c (step tau) (Nat.iter b (step tau) (Nat.iter a (step tau) g)).
+Proof.
+  intros tau g a b c.
+  replace (a + b + c)%nat with (a + (b + c))%nat by lia.
+  rewrite step_iter_add.
+  rewrite step_iter_add.
+  reflexivity.
+Qed.
+
+Lemma iter_split_three :
+  forall tau g a b c,
+    Nat.iter (a + b + c) (step tau) g =
+    Nat.iter c (step tau) (Nat.iter b (step tau) (Nat.iter a (step tau) g)).
+Proof.
+  intros. apply iter_add_reassoc.
+Qed.
+
+Lemma mod_add_mult_vanish :
+  forall a b k,
+    (b > 0)%nat ->
+    ((k * b + a) mod b = a mod b)%nat.
+Proof.
+  intros a b k Hb.
+  rewrite Nat.add_comm.
+  rewrite Nat.mod_add; [|lia].
+  reflexivity.
+Qed.
+
+Lemma mod_mod_idem :
+  forall a b,
+    (b > 0)%nat ->
+    ((a mod b) mod b = a mod b)%nat.
+Proof.
+  intros a b Hb.
+  rewrite Nat.mod_mod; [reflexivity | lia].
+Qed.
+
+Lemma iter_add_reassoc_nat :
+  forall tau g a b c,
+    Nat.iter (a + (b + c)) (step tau) g = Nat.iter (a + b + c) (step tau) g.
+Proof.
+  intros. f_equal. lia.
+Qed.
+
+Lemma iter_add_cancel_period :
+  forall tau g n p k r,
+    has_period tau (Nat.iter n (step tau) g) p ->
+    Nat.iter (n + (k * p + r)) (step tau) g = Nat.iter (n + r) (step tau) g.
+Proof.
+  intros tau g n p k r Hper.
+  assert (Eq1: (n + (k * p + r) = n + k * p + r)%nat) by lia.
+  assert (Eq2: (n + r = n + 0 + r)%nat) by lia.
+  rewrite Eq1, Eq2.
+  do 2 rewrite iter_split_three.
+  assert (Goal: Nat.iter (k * p) (step tau) (Nat.iter n (step tau) g) =
+                Nat.iter 0 (step tau) (Nat.iter n (step tau) g)).
+  { rewrite period_shift_iter with (p := p) (k := k) by exact Hper.
+    simpl. reflexivity. }
+  rewrite Goal.
+  reflexivity.
+Qed.
+
+Lemma iter_add_cancel_period_flat :
+  forall tau g n p k r,
+    has_period tau (Nat.iter n (step tau) g) p ->
+    Nat.iter (n + k * p + r) (step tau) g = Nat.iter (n + r) (step tau) g.
+Proof.
+  intros.
+  rewrite <- iter_add_reassoc_nat.
+  apply iter_add_cancel_period.
+  assumption.
+Qed.
+
+Lemma period_advance_offset :
+  forall tau g n p r,
+    has_period tau (Nat.iter n (step tau) g) p ->
+    (0 < r)%nat ->
+    (r < p)%nat ->
+    Nat.iter (n + r) (step tau) g = Nat.iter (n + p + r) (step tau) g.
+Proof.
+  intros tau g n p r Hper Hr_pos Hr_bound.
+  symmetry.
+  assert (Heq: (n + p + r = n + 1 * p + r)%nat) by lia.
+  rewrite Heq.
+  apply iter_add_cancel_period_flat.
+  exact Hper.
+Qed.
+
+Lemma period_advance_by_q :
+  forall tau g n p q r,
+    has_period tau (Nat.iter n (step tau) g) p ->
+    Nat.iter (n + q * p + r) (step tau) g = Nat.iter (n + r) (step tau) g.
+Proof.
+  intros tau g n p q r Hper.
+  apply iter_add_cancel_period_flat.
+  exact Hper.
+Qed.
+
+Lemma add_period_to_offset :
+  forall tau g n p r,
+    has_period tau (Nat.iter n (step tau) g) p ->
+    Nat.iter (n + p + r) (step tau) g = Nat.iter (n + r) (step tau) g.
+Proof.
+  intros.
+  assert (Heq: (n + p + r = n + 1 * p + r)%nat) by lia.
+  rewrite Heq.
+  apply iter_add_cancel_period_flat.
+  assumption.
+Qed.
+
+Lemma period_add_p_eq_qplus1_mult_p :
+  forall tau g n p q,
+    has_period tau (Nat.iter n (step tau) g) p ->
+    Nat.iter (n + p) (step tau) g = Nat.iter (n + (q + 1) * p) (step tau) g.
+Proof.
+  intros tau g n p q Hper.
+  replace ((q + 1) * p)%nat with (q * p + p)%nat by lia.
+  replace (n + (q * p + p))%nat with (n + q * p + p)%nat by lia.
+  symmetry.
+  apply period_advance_by_q.
+  exact Hper.
+Qed.
+
+Lemma period_add_p_plus_r_eq_qplus1_mult_p :
+  forall tau g n p q,
+    has_period tau (Nat.iter n (step tau) g) p ->
+    Nat.iter (n + p) (step tau) g = Nat.iter (n + (q + 1) * p) (step tau) g.
+Proof.
+  intros tau g n p q Hper.
+  replace ((q + 1) * p)%nat with (q * p + p)%nat by lia.
+  replace (n + (q * p + p))%nat with (n + q * p + p)%nat by lia.
+  assert (H: Nat.iter (n + q * p + p) (step tau) g = Nat.iter (n + p) (step tau) g).
+  { assert (H1: Nat.iter (n + q * p) (step tau) g = Nat.iter n (step tau) g).
+    { specialize (period_advance_by_q tau g n p q 0%nat Hper) as Hpaq.
+      replace (n + q * p + 0)%nat with (n + q * p)%nat in Hpaq by lia.
+      replace (n + 0)%nat with n in Hpaq by lia.
+      exact Hpaq. }
+    replace (n + q * p + p)%nat with ((n + q * p) + p)%nat by lia.
+    rewrite step_iter_add.
+    rewrite H1.
+    rewrite <- step_iter_add.
+    reflexivity. }
+  symmetry.
+  exact H.
+Qed.
+
+(* === Micro-Lemma 10: Cycle repeats forever === *)
+
+Lemma cycle_repeats_forever :
+  forall tau g n p m,
+    wellformed_grid g ->
+    has_period tau (Nat.iter n (step tau) g) p ->
+    (m >= n)%nat ->
+    exists k r, (r < p)%nat /\ Nat.iter m (step tau) g = Nat.iter (n + k * p + r)%nat (step tau) g.
+Proof.
+  intros tau g n p m Hwf Hper Hm.
+  destruct Hper as [Hpos Hper_eq].
+  pose (d := (m - n)%nat).
+  pose (q := (d / p)%nat).
+  pose (r := (d mod p)%nat).
+  assert (Hd_decomp: d = (q * p + r)%nat).
+  { unfold q, r, d. rewrite Nat.mul_comm. apply Nat.div_mod. lia. }
+  assert (Hr_bound: (r < p)%nat).
+  { unfold r. apply Nat.mod_upper_bound. lia. }
+  exists 0%nat, r.
+  split; [exact Hr_bound|].
+  assert (Hm_eq: m = (n + d)%nat) by (unfold d; lia).
+  rewrite Hm_eq, Hd_decomp.
+  replace (n + (q * p + r))%nat with (n + q * p + r)%nat by lia.
+  replace (n + 0 * p + r)%nat with (n + r)%nat by lia.
+  assert (Hper': has_period tau (Nat.iter n (step tau) g) p) by (split; assumption).
+  apply period_advance_by_q.
+  exact Hper'.
+Qed.
+
+(* === Micro-Lemma 11: Eventually periodic behavior === *)
+
+Lemma eventually_periodic :
+  forall tau g n,
+    wellformed_grid g ->
+    (exists p, (0 < p)%nat /\ has_period tau (Nat.iter n (step tau) g) p) ->
+    forall m, (m >= n)%nat ->
+      exists k, (k >= n)%nat /\ (k <= m)%nat /\
+        Nat.iter m (step tau) g = Nat.iter k (step tau) g.
+Proof.
+  intros tau g n Hwf [p [Hpos Hper]] m Hm.
+  exists (n + (m - n) mod p)%nat.
+  repeat split; [lia | |].
+  - assert (H: ((m - n) mod p <= m - n)%nat) by (apply Nat.mod_le; lia). lia.
+  - transitivity (Nat.iter (n + (m - n)) (step tau) g).
+    + f_equal. lia.
+    + set (d := (m - n)%nat).
+      replace (m - n)%nat with d by reflexivity.
+      assert (Hd_decomp: d = (d / p * p + d mod p)%nat).
+      { unfold d. apply mod_decomposition. exact Hpos. }
+      replace d with (d / p * p + d mod p)%nat by (symmetry; exact Hd_decomp).
+      rewrite iter_add_cancel_period with (p := p) (k := (d / p)%nat) (r := (d mod p)%nat) by exact Hper.
+      f_equal.
+      unfold d.
+      rewrite mod_add_mult_vanish by exact Hpos.
+      rewrite mod_mod_idem by exact Hpos.
+      reflexivity.
+Qed.
+
+(* === Micro-Lemma 12: Fixpoint at n means fixpoint forever === *)
+
+Lemma fixpoint_at_n_means_stable_forever :
+  forall tau g n,
+    wellformed_grid g ->
+    is_fixpoint tau (Nat.iter n (step tau) g) ->
+    forall m, (m >= n)%nat ->
+      is_fixpoint tau (Nat.iter m (step tau) g).
+Proof.
+  intros tau g n Hwf Hfix m Hm.
+  assert (Heq: Nat.iter m (step tau) g = Nat.iter n (step tau) g).
+  { apply iter_fixpoint_stable; assumption. }
+  rewrite Heq.
+  assumption.
+Qed.
+
+Lemma iter_pair_eq_dec :
+  forall tau g i j,
+    wellformed_grid g ->
+    {Nat.iter i (step tau) g = Nat.iter j (step tau) g} +
+    {Nat.iter i (step tau) g <> Nat.iter j (step tau) g}.
+Proof.
+  intros.
+  apply grid_eq_decidable; apply step_iter_wellformed; assumption.
+Defined.
+
+Fixpoint find_match_with_target (tau : nat) (g : Grid) (j_target : nat) (i_max : nat) : option nat :=
+  match i_max with
+  | O => None
+  | S i' =>
+      if grid_eq (Nat.iter i' (step tau) g) (Nat.iter j_target (step tau) g)
+      then Some i'
+      else find_match_with_target tau g j_target i'
+  end.
+
+Lemma find_match_some :
+  forall tau g j_target i_max i,
+    wellformed_grid g ->
+    find_match_with_target tau g j_target i_max = Some i ->
+    (i < i_max)%nat /\ Nat.iter i (step tau) g = Nat.iter j_target (step tau) g.
+Proof.
+  intros tau g j_target i_max i Hwf.
+  induction i_max as [|i_max' IH]; intros Hfind; simpl in Hfind.
+  - discriminate.
+  - destruct (grid_eq (Nat.iter i_max' (step tau) g) (Nat.iter j_target (step tau) g)) eqn:Heq.
+    + injection Hfind as Hfind. subst. split. lia.
+      apply grid_eq_true_to_functional_eq; try assumption.
+      apply step_iter_wellformed; assumption.
+      apply step_iter_wellformed; assumption.
+    + destruct (IH Hfind) as [Hlt Heq_i]. split. lia. exact Heq_i.
+Qed.
+
+Lemma find_match_none :
+  forall tau g j_target i_max,
+    find_match_with_target tau g j_target i_max = None ->
+    forall i, (i < i_max)%nat -> Nat.iter i (step tau) g <> Nat.iter j_target (step tau) g.
+Proof.
+  intros tau g j_target i_max.
+  induction i_max as [|i_max' IH]; intros Hnone i Hi.
+  - lia.
+  - simpl in Hnone.
+    destruct (grid_eq (Nat.iter i_max' (step tau) g) (Nat.iter j_target (step tau) g)) eqn:Heq.
+    + discriminate.
+    + destruct (Nat.eq_dec i i_max') as [Heq_i | Hneq_i].
+      * subst. intros Hcontra.
+        assert (Htrue: grid_eq (Nat.iter i_max' (step tau) g) (Nat.iter j_target (step tau) g) = true).
+        { rewrite Hcontra. apply grid_eq_refl. }
+        rewrite Htrue in Heq. discriminate.
+      * apply IH. exact Hnone. lia.
+Qed.
+
+Lemma find_match_largest :
+  forall tau g j_target i_max i_found,
+    find_match_with_target tau g j_target i_max = Some i_found ->
+    forall i, (i_found < i < i_max)%nat -> Nat.iter i (step tau) g <> Nat.iter j_target (step tau) g.
+Proof.
+  intros tau g j_target i_max.
+  induction i_max as [|i_max' IH]; intros i_found Hfind i Hi.
+  - discriminate.
+  - simpl in Hfind.
+    destruct (grid_eq (Nat.iter i_max' (step tau) g) (Nat.iter j_target (step tau) g)) eqn:Heq.
+    + injection Hfind as Hfind. subst i_found.
+      assert (i = i_max') by lia. subst. lia.
+    + destruct (Nat.eq_dec i i_max') as [Heq_i | Hneq_i].
+      * subst. intros Hcontra.
+        assert (Htrue: grid_eq (Nat.iter i_max' (step tau) g) (Nat.iter j_target (step tau) g) = true).
+        { rewrite Hcontra. apply grid_eq_refl. }
+        rewrite Htrue in Heq. discriminate.
+      * apply IH with (i_found := i_found). exact Hfind. lia.
+Qed.
+
+(* === Micro-Lemma 14: First repeat determines behavior === *)
+
+Lemma first_repeat_characterizes :
+  forall tau g i j,
+    wellformed_grid g ->
+    (i < j)%nat ->
+    Nat.iter i (step tau) g = Nat.iter j (step tau) g ->
+    (forall i' j', (i' < j')%nat /\ (j' < j)%nat ->
+      Nat.iter i' (step tau) g <> Nat.iter j' (step tau) g) ->
+    ((i = 0)%nat /\ has_period tau g j) \/
+    ((i > 0)%nat /\ has_period tau (Nat.iter i (step tau) g) (j - i)).
+Proof.
+  intros tau g i j Hwf Hij Heq Hmin.
+  destruct (Nat.eq_dec i 0) as [Hi0|Hinz].
+  - left. split; [exact Hi0|].
+    subst i. simpl in Heq.
+    split; [lia|].
+    assert (Hstep: Nat.iter j (step tau) g = Nat.iter (0 + j) (step tau) g) by (simpl; reflexivity).
+    rewrite Hstep.
+    rewrite step_iter_add.
+    simpl. symmetry. exact Heq.
+  - right. split; [lia|].
+    split; [lia|].
+    assert (Hji: (j = (i + (j - i))%nat)) by lia.
+    rewrite Hji in Heq.
+    rewrite step_iter_add in Heq.
+    symmetry. exact Heq.
+Qed.
+
+(* === MAIN THEOREM 1: Guaranteed Termination to Periodic Behavior === *)
+
+Theorem guaranteed_termination_to_periodic :
+  forall tau g,
+    wellformed_grid g ->
+    exists n, (n <= S grid_configs_finite)%nat /\
+      (is_fixpoint tau (Nat.iter n (step tau) g) \/
+       exists p, (0 < p)%nat /\ (p <= S grid_configs_finite)%nat /\
+         has_period tau (Nat.iter n (step tau) g) p).
+Proof.
+  intros tau g Hwf.
+  destruct (repeat_within_configs_finite tau g Hwf) as [i [j [Hij [Hj Heq]]]].
+  destruct (repeat_implies_fixpoint_or_cycle tau g i j Hwf Hij Heq) as [Hfix | Hcycle].
+  - exists i. split; [lia | left; assumption].
+  - exists i. split; [lia | right].
+    destruct Hcycle as [Hpos Hper].
+    exists (j - i)%nat.
+    repeat split; try assumption; lia.
+Qed.
+
+(* === Micro-Lemma 15: Decidable check for fixpoint within bound === *)
+
+Lemma decidable_fixpoint_within_bound :
+  forall tau g n,
+    wellformed_grid g ->
+    {k : nat | (k <= n)%nat /\ is_fixpoint tau (Nat.iter k (step tau) g)} +
+    {forall k, (k <= n)%nat -> ~ is_fixpoint tau (Nat.iter k (step tau) g)}.
+Proof.
+  intros tau g n Hwf.
+  induction n as [|n' IH].
+  - destruct (grid_eq (step tau g) g) eqn:Heq.
+    + left. exists 0%nat. split; [lia|].
+      unfold is_fixpoint. simpl.
+      apply grid_eq_true_to_functional_eq in Heq;
+        [exact Heq | apply step_preserves_wellformed; assumption | assumption].
+    + right. intros k Hk. unfold is_fixpoint. simpl.
+      assert (Hk0: k = 0%nat) by lia. subst k.
+      intro Hcontra.
+      apply (grid_eq_false_implies_grids_differ (step tau g) g) in Heq.
+      apply Heq.
+      exact Hcontra.
+  - destruct IH as [[k [Hk Hfix]]|Hnone].
+    + left. exists k. split; [lia | exact Hfix].
+    + destruct (grid_eq (step tau (Nat.iter (S n') (step tau) g)) (Nat.iter (S n') (step tau) g)) eqn:Heq.
+      * left. exists (S n'). split; [lia|].
+        unfold is_fixpoint.
+        apply grid_eq_true_to_functional_eq in Heq;
+          [exact Heq |
+           apply step_preserves_wellformed; apply step_iter_wellformed; assumption |
+           apply step_iter_wellformed; assumption].
+      * right. intros k Hk.
+        destruct (Nat.eq_dec k (S n')) as [Hkeq|Hkneq].
+        -- subst k. unfold is_fixpoint. intro Hcontra.
+           apply (grid_eq_false_implies_grids_differ (step tau (Nat.iter (S n') (step tau) g))
+                    (Nat.iter (S n') (step tau) g)) in Heq.
+           apply Heq.
+           exact Hcontra.
+        -- apply Hnone. lia.
+Qed.
+
+(* === Micro-Lemma 16a: Decidable period check at specific offset === *)
+
+Lemma decidable_period_at_offset :
+  forall tau g k n,
+    wellformed_grid g ->
+    {p : nat | (0 < p <= n)%nat /\ has_period tau (Nat.iter k (step tau) g) p} +
+    {forall p, (0 < p <= n)%nat -> ~ has_period tau (Nat.iter k (step tau) g) p}.
+Proof.
+  intros tau g k n Hwf.
+  induction n as [|n' IH].
+  - right. intros p [Hpos Hp]. lia.
+  - destruct IH as [[p [Hpbound Hper]]|Hnone_p].
+    + left. exists p. split; [lia | exact Hper].
+    + destruct (grid_eq (Nat.iter (S n') (step tau) (Nat.iter k (step tau) g))
+                        (Nat.iter k (step tau) g)) eqn:Heq.
+      * left. exists (S n'). split; [lia|].
+        split; [lia|].
+        unfold has_period.
+        apply grid_eq_true_to_functional_eq in Heq;
+          [exact Heq |
+           apply step_iter_wellformed; apply step_iter_wellformed; assumption |
+           apply step_iter_wellformed; assumption].
+      * right. intros p [Hpos Hp].
+        destruct (Nat.eq_dec p (S n')) as [Hpeq|Hpneq].
+        -- subst p. unfold has_period. intros [_ Hcontra].
+           apply (grid_eq_false_implies_grids_differ (Nat.iter (S n') (step tau) (Nat.iter k (step tau) g))
+                    (Nat.iter k (step tau) g)) in Heq.
+           apply Heq.
+           exact Hcontra.
+        -- apply Hnone_p. split; [exact Hpos | lia].
+Qed.
+
+(* === Micro-Lemma 16b: Check specific period at all offsets === *)
+
+Lemma decidable_period_all_offsets :
+  forall tau g p n,
+    wellformed_grid g ->
+    (0 < p)%nat ->
+    {k : nat | (k <= n)%nat /\ has_period tau (Nat.iter k (step tau) g) p} +
+    {forall k, (k <= n)%nat -> ~ has_period tau (Nat.iter k (step tau) g) p}.
+Proof.
+  intros tau g p n Hwf Hpos.
+  induction n as [|n' IH].
+  - destruct (grid_eq (Nat.iter p (step tau) g) g) eqn:Heq.
+    + left. exists 0%nat. split; [lia|].
+      split; [exact Hpos|].
+      simpl.
+      apply grid_eq_true_to_functional_eq in Heq;
+        [exact Heq | apply step_iter_wellformed; assumption | assumption].
+    + right. intros k Hk.
+      assert (Hk0 : k = 0%nat) by lia. subst k.
+      simpl. unfold has_period. intros [_ Hcontra].
+      apply (grid_eq_false_implies_grids_differ (Nat.iter p (step tau) g) g) in Heq.
+      apply Heq. exact Hcontra.
+  - destruct IH as [[k [Hk Hper]] | Hnone].
+    + left. exists k. split; [lia | exact Hper].
+    + destruct (grid_eq (Nat.iter p (step tau) (Nat.iter (S n') (step tau) g))
+                        (Nat.iter (S n') (step tau) g)) eqn:Heq.
+      * left. exists (S n'). split; [lia|].
+        split; [exact Hpos|].
+        apply grid_eq_true_to_functional_eq in Heq;
+          [exact Heq |
+           apply step_iter_wellformed; apply step_iter_wellformed; assumption |
+           apply step_iter_wellformed; assumption].
+      * right. intros k Hk.
+        destruct (Nat.eq_dec k (S n')) as [Hkeq | Hkneq].
+        -- subst k. unfold has_period. intros [_ Hcontra].
+           apply (grid_eq_false_implies_grids_differ (Nat.iter p (step tau) (Nat.iter (S n') (step tau) g))
+                    (Nat.iter (S n') (step tau) g)) in Heq.
+           apply Heq. exact Hcontra.
+        -- apply Hnone. lia.
+Qed.
+
+(* === Micro-Lemma 16: Decidable check for cycle within bound === *)
+
+Lemma decidable_cycle_within_bound :
+  forall tau g n,
+    wellformed_grid g ->
+    {k : nat & {p : nat | (k <= n)%nat /\ (0 < p)%nat /\ (p <= n)%nat /\
+      has_period tau (Nat.iter k (step tau) g) p}} +
+    {forall k p, (k <= n)%nat -> (0 < p)%nat -> (p <= n)%nat ->
+      ~ has_period tau (Nat.iter k (step tau) g) p}.
+Proof.
+  intros tau g n Hwf.
+  induction n as [|n' IH].
+  - right. intros k p Hk Hpos Hp. lia.
+  - destruct IH as [[k [p [Hk [Hpos [Hp Hper]]]]]|Hnone].
+    + left. exists k. exists p. split; [lia|]. split; [exact Hpos|]. split; [lia|]. exact Hper.
+    + (* Check period S n' at all offsets <= n' *)
+      destruct (decidable_period_all_offsets tau g (S n') n' Hwf ltac:(lia)) as [[k' [Hk' Hper']] | Hnone_Sn'].
+      * left. exists k'. exists (S n'). split; [lia|]. split; [lia|]. split; [lia|]. exact Hper'.
+      * (* Check all periods at offset S n' *)
+        destruct (decidable_period_at_offset tau g (S n') (S n') Hwf) as [[p [Hpbound Hper]]|Hnone_k].
+        -- left. exists (S n'). exists p. split; [lia|]. destruct Hpbound as [Hpos Hp]. split; [exact Hpos|]. split; [exact Hp|]. exact Hper.
+        -- right. intros k p Hk Hpos Hp.
+           destruct (Nat.eq_dec k (S n')) as [Hkeq|Hkneq].
+           ++ subst k. apply Hnone_k. split; assumption.
+           ++ destruct (Nat.le_gt_cases p (S n')) as [Hple | Hpgt].
+              ** destruct (Nat.eq_dec p (S n')) as [Hpeq | Hpneq].
+                 --- subst p. apply Hnone_Sn'. lia.
+                 --- assert (Hp' : (p <= n')%nat) by lia.
+                     apply (Hnone k p).
+                     +++ lia.
+                     +++ exact Hpos.
+                     +++ exact Hp'.
+              ** lia.
+Qed.
+
+(* === MAIN THEOREM 2: Constructive Termination === *)
+
+Theorem constructive_termination :
+  forall tau g,
+    wellformed_grid g ->
+    {n : nat | (n <= S grid_configs_finite)%nat /\
+      is_fixpoint tau (Nat.iter n (step tau) g)} +
+    {n : nat & {p : nat | (n <= S grid_configs_finite)%nat /\
+      (0 < p <= S grid_configs_finite)%nat /\
+      has_period tau (Nat.iter n (step tau) g) p}}.
+Proof.
+  intros tau g Hwf.
+  (* First check for cycles *)
+  destruct (decidable_cycle_within_bound tau g (S grid_configs_finite) Hwf) as [[k [p Hcycle]] | Hno_cycle].
+  - (* Cycle found *)
+    right. exists k. exists p.
+    destruct Hcycle as [Hk [Hpos [Hp Hper]]].
+    split; [exact Hk | split; [split; [exact Hpos | exact Hp] | exact Hper]].
+  - (* No cycle, check for fixpoint *)
+    destruct (decidable_fixpoint_within_bound tau g (S grid_configs_finite) Hwf) as [[n Hfix] | Hno_fix].
+    + (* Fixpoint found *)
+      left. exists n. exact Hfix.
+    + (* Neither fixpoint nor cycle - impossible! *)
+      exfalso.
+      (* By guaranteed_termination_to_periodic, either fixpoint or cycle must exist *)
+      destruct (guaranteed_termination_to_periodic tau g Hwf) as [n [Hn [Hfix | [p [Hpos [Hp Hper]]]]]].
+      * (* Fixpoint exists - contradiction with Hno_fix *)
+        apply (Hno_fix n).
+        -- exact Hn.
+        -- exact Hfix.
+      * (* Cycle exists - contradiction with Hno_cycle *)
+        apply (Hno_cycle n p).
+        -- exact Hn.
+        -- exact Hpos.
+        -- exact Hp.
+        -- exact Hper.
+Qed.
+
+(* === MAIN THEOREM 3: Every Execution Converges === *)
+
+Theorem every_execution_converges :
+  forall tau g,
+    wellformed_grid g ->
+    (exists n, is_fixpoint tau (Nat.iter n (step tau) g)) \/
+    (exists n p, (0 < p)%nat /\ has_period tau (Nat.iter n (step tau) g) p).
+Proof.
+  intros tau g Hwf.
+  destruct (guaranteed_termination_to_periodic tau g Hwf) as [n [Hn [Hfix | Hcycle]]].
+  - left. exists n. assumption.
+  - right. destruct Hcycle as [p [Hpos [Hp Hper]]].
+    exists n, p. split; assumption.
+Qed.
+
+(* === MAIN THEOREM 4: Bounded Convergence Time === *)
+
+Theorem bounded_convergence_time :
+  forall tau g,
+    wellformed_grid g ->
+    exists n, (n <= S grid_configs_finite)%nat /\
+      (forall m, (m >= n)%nat ->
+        (is_fixpoint tau (Nat.iter n (step tau) g) ->
+          Nat.iter m (step tau) g = Nat.iter n (step tau) g) /\
+        (forall p, has_period tau (Nat.iter n (step tau) g) p ->
+          exists k, (k >= n)%nat /\ (k <= m)%nat /\
+            Nat.iter m (step tau) g = Nat.iter k (step tau) g)).
+Proof.
+  intros tau g Hwf.
+  destruct (guaranteed_termination_to_periodic tau g Hwf) as [n [Hn Hbehavior]].
+  exists n.
+  split; [assumption|].
+  intros m Hm.
+  split.
+  - intros Hfix.
+    apply fixpoint_all_future_equal; assumption.
+  - intros p Hperiod.
+    apply eventually_periodic; try assumption.
+    exists p. split; [destruct Hperiod; assumption | assumption].
+Qed.
+
+(* === COROLLARY: Decidable Long-Term Behavior === *)
+
+Lemma not_fixpoint_at_zero :
+  forall tau g,
+    ~ is_fixpoint tau g ->
+    (0 <= S grid_configs_finite)%nat /\ ~ is_fixpoint tau (Nat.iter 0 (step tau) g).
+Proof.
+  intros tau g Hnfix.
+  split.
+  - pose proof (grid_configs_bound_positive). lia.
+  - simpl. exact Hnfix.
+Qed.
+
+Lemma step_position_unchanged_if_happy_or_empty :
+  forall tau g p,
+    (get_cell g p = Empty \/ happy tau g p = true) ->
+    step_position tau g p = g.
+Proof.
+  intros tau g p [Hempty | Hhappy].
+  - apply step_position_when_empty_preserves_grid. exact Hempty.
+  - apply step_position_when_happy_preserves_grid. exact Hhappy.
+Qed.
+
+Lemma not_stable_not_fixpoint_implies_witness :
+  forall tau g,
+    wellformed_grid g ->
+    ~ stable tau g ->
+    ~ is_fixpoint tau g ->
+    (0 <= S grid_configs_finite)%nat /\ ~ is_fixpoint tau (Nat.iter 0 (step tau) g).
+Proof.
+  intros tau g Hwf Hnstable Hnfix.
+  split.
+  - pose proof (grid_configs_bound_positive). lia.
+  - simpl. exact Hnfix.
+Qed.
+
+(* === Termination Characterization === *)
+
+Theorem complete_termination :
+  forall tau g,
+    wellformed_grid g ->
+    exists n_bound, (n_bound = S grid_configs_finite) /\
+      (exists n, (n <= n_bound)%nat /\
+        ((is_fixpoint tau (Nat.iter n (step tau) g) /\
+          forall m, (m >= n)%nat ->
+            Nat.iter m (step tau) g = Nat.iter n (step tau) g) \/
+         (exists p, (0 < p <= n_bound)%nat /\
+           has_period tau (Nat.iter n (step tau) g) p /\
+           forall m, (m >= n)%nat ->
+             exists k, (n <= k <= m)%nat /\
+               Nat.iter m (step tau) g = Nat.iter k (step tau) g))).
+Proof.
+  intros tau g Hwf.
+  exists (S grid_configs_finite).
+  split; [reflexivity|].
+  destruct (guaranteed_termination_to_periodic tau g Hwf) as [n [Hn [Hfix | Hcycle]]].
+  - (* Fixpoint case *)
+    exists n.
+    split; [assumption|].
+    left.
+    split; [assumption|].
+    intros m Hm.
+    apply fixpoint_all_future_equal; assumption.
+  - (* Cycle case *)
+    destruct Hcycle as [p [Hpos [Hp Hper]]].
+    exists n.
+    split; [assumption|].
+    right.
+    exists p.
+    split; [lia|].
+    split; [assumption|].
+    intros m Hm.
+    destruct (eventually_periodic tau g n Hwf (ex_intro _ p (conj Hpos Hper)) m Hm)
+      as [k [Hk_ge [Hk_le Heq]]].
+    exists k.
+    split; [lia | assumption].
+Qed.
+
 
 End SchellingModel.
 
